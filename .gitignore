@@ -4,6 +4,9 @@ __pycache__/
 .fastembed_cache/
 *.pyc
 
+# Local UI workspace — annotations, chats, saved sessions (personal, regenerable)
+workspace/
+
 # Large data files (books stored in R2; index is regenerable)
 books/
 index/
