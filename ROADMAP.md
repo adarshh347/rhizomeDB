@@ -8,6 +8,7 @@ vs **one-off** vs **recurring** vs **continuous** (a service you leave on).
 ---
 
 ## A. The engine (core build)
+- ◑ **Formats** — parallel pipeline lines (F1 = simple RAG + surface diagnostics, *active*; F2 = researched RAG, *planned*). See `FORMATS.md` / `rhizome/formats.py` *(ongoing)*
 - ✓ Constellatory geometry — resonance band, skip-top, MMR, near-dup guard *(one-off)*
 - ✓ Intra-corpus connection (cross-book, same-author allowed) *(one-off)*
 - ✓ Structural-HyDE — retrieve on the *form* of a thought, not its words *(one-off; needs a live run)*
