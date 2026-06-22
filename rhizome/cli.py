@@ -50,11 +50,68 @@ def _theme_from_note(note_id: str) -> str:
     return pick["text"]
 
 
-def cmd_build(_):
-    print("1/3 catalog"); cat = catalog.build_catalog(); catalog.save_catalog(cat)
-    print("2/3 chunk");   chunk_mod.build_chunks()
-    print("3/3 embed");   embed_mod.build_embeddings()
-    print("Done. Try:  python -m rhizome.cli explore --random")
+def cmd_build(args):
+    """Multi-resolution build. `--levels` selects rungs on the SOLID→LIQUID dial.
+    Idempotent: the chunk level is only (re)built when missing or --force, so
+    existing embeddings/ids/annotations are preserved."""
+    from . import chunking, enrich
+    levels = [l.strip() for l in (args.levels or "chunk").split(",") if l.strip()]
+    print(f"Building levels: {levels}")
+    if "chunk" in levels:
+        if config.CHUNKS_PATH.exists() and not args.force:
+            print("1) chunk     exists — skipping (use --force to rebuild)")
+        else:
+            print("1) chunk"); catalog.save_catalog(catalog.build_catalog())
+            chunk_mod.build_chunks(); embed_mod.build_embeddings()
+    if "parent" in levels:
+        print("2) parent")
+        chunking.build_parents(books=args.book, method=args.method)
+        chunking.build_level_embeddings("parent")
+    if "proposition" in levels:
+        print("3) proposition")
+        if args.llm:
+            enrich.build_propositions(books=args.book, sample=args.sample)
+        else:
+            chunking.build_propositions_sentences(books=args.book, sample=args.sample)
+        chunking.build_level_embeddings("proposition")
+    print("Done.  Visualise:  python -m rhizome.cli chunkmap")
+
+
+def cmd_embed(args):
+    keys = args.model or [config.DEFAULT_EMBED]
+    if keys == ["all"]:
+        keys = list(config.EMBED_MODELS)
+    for key in keys:
+        embed_mod.build_embeddings(key)
+
+
+def cmd_embed_level(args):
+    from . import chunking
+    chunking.build_level_embeddings(args.level)
+
+
+def cmd_enrich(args):
+    from . import enrich, chunking
+    if args.contextual:
+        enrich.enrich_contextual(level=args.level, books=args.book, sample=args.sample)
+        chunking.build_level_embeddings(args.level)   # re-embed blurb+text
+    else:
+        print("nothing to do — pass --contextual")
+
+
+def cmd_characterize(args):
+    from . import enrich
+    enrich.characterize(level=args.level, books=args.book, sample=args.sample)
+
+
+def cmd_chunkmap(_):
+    from tools import chunkmap
+    chunkmap.build()
+
+
+def cmd_eval_embed(_):
+    from . import eval_embed
+    eval_embed.main()
 
 
 def _print_candidate(i, c, judged):
@@ -122,7 +179,41 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("catalog", help="(re)generate catalog.json").set_defaults(func=cmd_catalog)
-    sub.add_parser("build", help="catalog -> chunk -> embed").set_defaults(func=cmd_build)
+
+    b = sub.add_parser("build", help="multi-resolution build (--levels parent,chunk,proposition)")
+    b.add_argument("--levels", default="chunk", help="comma list: parent,chunk,proposition")
+    b.add_argument("--method", default=None, help="parent chunker: recursive|semantic")
+    b.add_argument("--llm", action="store_true", help="proposition via LLM (else sentence-split)")
+    b.add_argument("--sample", type=int, default=None, help="cap units for the LLM passes")
+    b.add_argument("--book", nargs="+", default=None, help="scope to book id(s)")
+    b.add_argument("--force", action="store_true", help="rebuild the chunk level even if present")
+    b.set_defaults(func=cmd_build)
+
+    em = sub.add_parser("embed", help="(re)build embeddings for one/more models")
+    em.add_argument("--model", nargs="+",
+                    help=f"model key(s) from {list(config.EMBED_MODELS)}, or 'all'")
+    em.set_defaults(func=cmd_embed)
+    el = sub.add_parser("embed-level", help="(re)build a level's embeddings (parent|proposition)")
+    el.add_argument("level")
+    el.set_defaults(func=cmd_embed_level)
+
+    en = sub.add_parser("enrich", help="contextual enrichment (R3): context blurb + re-embed")
+    en.add_argument("--contextual", action="store_true")
+    en.add_argument("--level", default="chunk")
+    en.add_argument("--sample", type=int, default=None)
+    en.add_argument("--book", nargs="+", default=None)
+    en.set_defaults(func=cmd_enrich)
+
+    cz = sub.add_parser("characterize", help="tag chunk character + desc (R4)")
+    cz.add_argument("--level", default="chunk")
+    cz.add_argument("--sample", type=int, default=None)
+    cz.add_argument("--book", nargs="+", default=None)
+    cz.set_defaults(func=cmd_characterize)
+
+    sub.add_parser("chunkmap", help="(re)build the chunk map (json + offline html)"
+                   ).set_defaults(func=cmd_chunkmap)
+    sub.add_parser("eval-embed", help="score embedding models on the in-domain gold set"
+                   ).set_defaults(func=cmd_eval_embed)
     sub.add_parser("notes", help="parse annotated reading notes -> annotations.jsonl").set_defaults(func=cmd_notes)
     sub.add_parser("graph", help="build the concept graph (edges) from notes").set_defaults(func=cmd_graph)
 
