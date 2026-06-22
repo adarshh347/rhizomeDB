@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RhizomeDB — Panel</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+:root{--bg:#F4F0E8;--ink:#2B2722;--panel:#FBF8F2;--line:#E5DCCB;--accent:#C4533A;--muted:#857A6B;}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+ font-family:-apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;line-height:1.5}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 24px 60px}
+h1{font-family:Georgia,serif;font-size:26px;margin:0 0 2px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+.strip{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:26px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:92px}
+.stat .n{font-size:22px;font-weight:600}.stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cols{display:grid;grid-template-columns:1.15fr .85fr;gap:22px}
+@media(max-width:840px){.cols{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 22px 18px;min-height:210px;display:flex;flex-direction:column}
+.cat{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:600;margin-bottom:8px}
+.card h2{font-family:Georgia,serif;font-size:20px;margin:0 0 10px}
+.card .body{font-size:14.5px;color:#433d35;flex:1}
+.card .meta{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);background:#F1EADD;border-radius:7px;padding:6px 9px;margin-top:12px;word-break:break-word}
+.nav{display:flex;align-items:center;gap:12px;margin-top:14px}
+.nav button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 16px;font-size:13px;cursor:pointer}
+.nav button:hover{border-color:var(--accent);color:var(--accent)}
+.count{font-size:12px;color:var(--muted)}
+.section h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 10px}
+.book{display:flex;align-items:center;gap:9px;font-size:13.5px;padding:5px 0;border-bottom:1px dashed var(--line)}
+.pill{font-size:10px;border-radius:20px;padding:1px 8px}
+.read{background:#DCE8DC;color:#3f6b46}.unread{background:#F0E2D8;color:#9a5a3c}
+#net{height:300px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-top:8px}
+.catcolors{}
+</style></head><body><div class="wrap">
+<h1>RhizomeDB · Panel</h1>
+<div class="sub">your pipeline at a glance, and one next step at a time · refreshed 2026-06-20 02:46</div>
+<div class="strip" id="strip"></div>
+<div class="cols">
+  <div>
+    <div class="card" id="card">
+      <div class="cat" id="c-cat"></div><h2 id="c-title"></h2>
+      <div class="body" id="c-body"></div><div class="meta" id="c-meta"></div>
+      <div class="nav"><button onclick="step(-1)">‹ Prev</button>
+        <button onclick="step(1)">Next ›</button><span class="count" id="c-count"></span></div>
+    </div>
+    <div class="section" style="margin-top:22px"><h3>Reading coverage</h3><div id="books"></div></div>
+  </div>
+  <div class="section"><h3>Concept graph</h3><div id="net"></div>
+    <div class="sub" style="margin-top:8px">authored · note · judged bridges, accreting</div></div>
+</div></div>
+<script>
+const D = {"status": {"books": 8, "chunks": 4177, "notes": 2, "annotations": 29, "edges": 5, "by_role": {"context": 3, "seed": 6, "claim": 2, "pattern": 2, "intensity": 5, "edge": 4, "direction": 5, "task": 1, "voice": 1}, "by_origin": {"authored": 1, "note": 4}, "llm_key": false}, "books": [{"id": "being-and-truth", "title": "Being and Truth", "author": "Martin Heidegger", "read": false}, {"id": "cambridge-companion-to-heidegger", "title": "The Cambridge Companion to Heidegger", "author": "various (ed. Charles Guignon)", "read": false}, {"id": "heidegger-and-the-destruction-of-aristotle", "title": "Heidegger and the Destruction of Aristotle: On How to Read", "author": "Sean D. Kirkland", "read": false}, {"id": "heidegger-dictionary", "title": "The Heidegger Dictionary", "author": "Michael Inwood", "read": false}, {"id": "heidegger-nietzsche-1-and-2", "title": "Nietzsche, Volumes I & II", "author": "Martin Heidegger", "read": false}, {"id": "heidegger-on-poetic-thinking", "title": "Heidegger on Poetic Thinking", "author": "Charles Bambach", "read": true}, {"id": "metaphysics-of-feeling-angst-and-finitude", "title": "Heidegger and a Metaphysics of Feeling: Angst and the Finitude of Being", "author": "Sharin N. Elkholy", "read": false}, {"id": "what-is-called-thinking", "title": "What Is Called Thinking?", "author": "Martin Heidegger", "read": true}], "deck": [{"cat": "decide", "title": "Name the faculty", "body": "Pick the word for what this engine does \u2014 beyond 'retrieval'. Front-runner: Pratibh\u0101. Alternates: Spanda, Dar\u015bana / Heuretics, Topos.", "meta": "a parked decision \u2014 see ROADMAP.md \u00a7H"}, {"cat": "read", "title": "Read & annotate: Being and Truth", "body": "Martin Heidegger. Read a section in the flow and annotate it in the schema; or let the reader-agent take a first pass.", "meta": "book: being-and-truth"}, {"cat": "read", "title": "Read & annotate: The Cambridge Companion to Heidegger", "body": "various (ed. Charles Guignon). Read a section in the flow and annotate it in the schema; or let the reader-agent take a first pass.", "meta": "book: cambridge-companion-to-heidegger"}, {"cat": "read", "title": "Read & annotate: Heidegger and the Destruction of Aristotle: On How to Read", "body": "Sean D. Kirkland. Read a section in the flow and annotate it in the schema; or let the reader-agent take a first pass.", "meta": "book: heidegger-and-the-destruction-of-aristotle"}, {"cat": "read", "title": "Read & annotate: The Heidegger Dictionary", "body": "Michael Inwood. Read a section in the flow and annotate it in the schema; or let the reader-agent take a first pass.", "meta": "book: heidegger-dictionary"}, {"cat": "read", "title": "Read & annotate: Nietzsche, Volumes I & II", "body": "Martin Heidegger. Read a section in the flow and annotate it in the schema; or let the reader-agent take a first pass.", "meta": "book: heidegger-nietzsche-1-and-2"}, {"cat": "read", "title": "Read & annotate: Heidegger and a Metaphysics of Feeling: Angst and the Finitude of Being", "body": "Sharin N. Elkholy. Read a section in the flow and annotate it in the schema; or let the reader-agent take a first pass.", "meta": "book: metaphysics-of-feeling-angst-and-finitude"}, {"cat": "explore", "title": "Evoke from this seed", "body": "What is most thought-provoking in our thought-provoking time is that we are still not yet thinking. To address that deficit, thinking must take a *leap* (Sprung) into being \u2014 \"a leap into the groundless from the habitual ground upon which, in each case, beings are.\"", "meta": "rhizome explore --note poetic-thinking-agentread"}, {"cat": "explore", "title": "Evoke from this seed", "body": "\"Poetry never takes language as a raw material present at hand; rather, poetry itself first makes language possible.\" The essence of language must be understood out of the essence of poetry, and not the other way around.", "meta": "rhizome explore --note poetic-thinking-agentread"}, {"cat": "explore", "title": "Evoke from this seed", "body": "*Ethos* means dwelling, sojourn \u2014 *Aufenthalt*, the human being's abode in the midst of beings as a whole. Ethics in its originary sense is not a doctrine of virtue or values (those are \"the consequence, mutation, and aberration of the concealed originary meaning\") but the question of how we dwell. ", "meta": "rhizome explore --note poetic-thinking-agentread"}, {"cat": "explore", "title": "Evoke from this seed", "body": "Ethics begins in uncertainty and aporia, where the rule does not fit the case and calculation cannot fit the circumstance.", "meta": "rhizome explore --note poetic-thinking-agentread"}, {"cat": "explore", "title": "Evoke from this seed", "body": "understanding happens through a jump in perspective.", "meta": "rhizome explore --note what-is-called-thinking"}, {"cat": "explore", "title": "Evoke from this seed", "body": "The strangeness is the beginning.\n\nHe says:\nThe leap takes us where everything is different.\nWhen genuine thought begins, familiar assumptions collapse.\nImagine a fish suddenly realizing:\n\"Water isn't just around me.\nWater is the condition that makes my whole life possible.\"\nThe fish becomes confuse", "meta": "rhizome explore --note what-is-called-thinking"}, {"cat": "do", "title": "Action", "body": "This deserves article writing which u should do in our archive collection we will build.", "meta": "from what-is-called-thinking"}, {"cat": "chase", "title": "Direction to chase", "body": "The \"we are not at home in our haunts\" passage and the cybernetics diagnosis together are a ready-made bridge into media theory: requisitioning (*bestellt* / *Gestell*) as the structure of the platform feed, and the lost capacity to *sojourn* (Aufenthalt) as the precise opposite of infinite-scroll d", "meta": "from poetic-thinking-agentread"}, {"cat": "chase", "title": "Direction to chase", "body": "Mine the Greek\u2194German \"secret affinity\" structure (Hellingrath, B\u00f6hlendorff) as a *formal* schema \u2014 native identity recovered only through the foreign \u2014 and test it against the Sanskrit-cosmopolis / desi-margi dialectic in Indian poetics (Pollock). A desi terminology for \"becoming-homely through the", "meta": "from poetic-thinking-agentread"}, {"cat": "chase", "title": "Direction to chase", "body": "Flag for the critical layer, not just evocation: Bambach is explicit that the same texts carrying the poetic-dwelling insight also carry the \"secret Germany\" / Volk-destiny chauvinism. Any engine fan-out from these seeds should keep the *chiasm* attached \u2014 the poetic-thinking material is not separab", "meta": "from poetic-thinking-agentread"}, {"cat": "chase", "title": "Direction to chase", "body": "See this is one of the general intuition skills you should learn and with time enhance.\nHere u can do the cliche task of just correlating, but the smart task would be noticing -\nChamatkara extends the heideggerean field to the media theory, media as a space time relaxation -abhinavaguptan thesis\nRes", "meta": "from what-is-called-thinking"}, {"cat": "chase", "title": "Direction to chase", "body": "How interesting this is.\nI want you think of this as : one of the lines of thinking\nWhich has high productivity if give into it.\nWe live in the era of technological,sociological expoenetian in terms of growth - buit a lot of failure of what could be bloomed i9s because we [erhaps in flow of enjoymen", "meta": "from what-is-called-thinking"}], "gnodes": [{"id": "Gelassenheit / releasement (Heidegger)", "label": "Gelassenheit / releasement (Heidegge"}, {"id": "visranti / repose (Abhinavagupta)", "label": "visranti / repose (Abhinavagupta)"}, {"id": "Ethics begins in uncertainty and aporia, where the rule does not fit the case an\u2026", "label": "Ethics begins in uncertainty and apo"}, {"id": "The leap (Sprung / Absprung) out of accumulated ground \u2014 \"no amount of grounds p\u2026", "label": "The leap (Sprung / Absprung) out of "}, {"id": "Heidegger's \"poetry first makes language possible; the essence of language must \u2026", "label": "Heidegger's \"poetry first makes lang"}, {"id": "The B\u00f6hlendorff law \u2014 \"the ownmost (das Eigene) must be learned as well as the f\u2026", "label": "The B\u00f6hlendorff law \u2014 \"the ownmost ("}, {"id": "understanding happens through a jump in perspective.", "label": "understanding happens through a jump"}, {"id": "That's quite related to the idea of chamatkara", "label": "That's quite related to the idea of "}], "gedges": [{"from": "Gelassenheit / releasement (Heidegger)", "to": "visranti / repose (Abhinavagupta)", "rel": "resonates", "origin": "authored"}, {"from": "Ethics begins in uncertainty and aporia, where the rule does not fit the case an\u2026", "to": "The leap (Sprung / Absprung) out of accumulated ground \u2014 \"no amount of grounds p\u2026", "rel": "correlate", "origin": "note"}, {"from": "Ethics begins in uncertainty and aporia, where the rule does not fit the case an\u2026", "to": "Heidegger's \"poetry first makes language possible; the essence of language must \u2026", "rel": "correlate", "origin": "note"}, {"from": "Ethics begins in uncertainty and aporia, where the rule does not fit the case an\u2026", "to": "The B\u00f6hlendorff law \u2014 \"the ownmost (das Eigene) must be learned as well as the f\u2026", "rel": "correlate", "origin": "note"}, {"from": "understanding happens through a jump in perspective.", "to": "That's quite related to the idea of chamatkara", "rel": "correlate", "origin": "note"}], "when": "2026-06-20 02:46"};
+const CC = {decide:"#7a5ca8", read:"#C4533A", explore:"#4F6D8C", do:"#6B8F71", chase:"#B07D48"};
+// status strip
+const s=D.status, cells=[["books",s.books],["chunks",s.chunks],["notes",s.notes],
+  ["annotations",s.annotations],["edges",s.edges]];
+document.getElementById("strip").innerHTML = cells.map(([l,n])=>
+  `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("")
+  + `<div class="stat"><div class="n">${s.llm_key?"on":"off"}</div><div class="l">llm key</div></div>`;
+// deck
+let i=0; const deck=D.deck;
+function render(){const c=deck[i];
+  document.getElementById("c-cat").textContent=c.cat; document.getElementById("c-cat").style.color=CC[c.cat]||"#857A6B";
+  document.getElementById("c-title").textContent=c.title;
+  document.getElementById("c-body").textContent=c.body;
+  document.getElementById("c-meta").textContent=c.meta||"";
+  document.getElementById("c-count").textContent=`step ${i+1} of ${deck.length}`;}
+function step(d){i=(i+d+deck.length)%deck.length;render();} render();
+// books
+document.getElementById("books").innerHTML = D.books.map(b=>
+  `<div class="book"><span class="pill ${b.read?'read':'unread'}">${b.read?'reading':'to read'}</span>
+   <span>${b.title}</span></div>`).join("");
+// graph
+new vis.Network(document.getElementById("net"),
+  {nodes:new vis.DataSet(D.gnodes.map(n=>({id:n.id,label:n.label,shape:"dot",size:11,
+     font:{size:11},color:{background:"#C4533A",border:"#fff"}}))),
+   edges:new vis.DataSet(D.gedges.map(e=>({from:e.from,to:e.to,label:e.rel,
+     font:{size:9,color:"#857A6B"},color:{color: e.origin==='judged'?'#4F6D8C':e.origin==='authored'?'#C4533A':'#cdbfa6'},
+     arrows:"to",dashes:e.origin==='note'})))},
+  {physics:{stabilization:{iterations:120}},interaction:{hover:true},nodes:{borderWidth:2}});
+</script></body></html>
