@@ -16,22 +16,62 @@ import pathlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-from rhizome import config, chunk as chunk_mod, embed as embed_mod, store as store_mod, llm
+import numpy as np
+
+from rhizome import (config, chunk as chunk_mod, embed as embed_mod,
+                     store as store_mod, llm, workspace)
 from rhizome.catalog import load_catalog
 
 ROOT = pathlib.Path(__file__).resolve().parent
 INDEX_HTML = ROOT / "frontend" / "index.html"
+READER_HTML = ROOT / "frontend" / "reader.html"
 
 _ENGINE = None
 
 
 def get_engine():
-    """Load the engine once (Store + LLM client) and reuse it."""
+    """Load the engine once (default Store + LLM client) and reuse it."""
     global _ENGINE
     if _ENGINE is None:
         from rhizome.engine import Engine
         _ENGINE = Engine()
     return _ENGINE
+
+
+_STORES = {}
+
+
+def get_store(model_key=config.DEFAULT_EMBED):
+    """Cache one Store per embedding model (chunks are shared, vectors differ)."""
+    if model_key not in _STORES:
+        if model_key == config.DEFAULT_EMBED:
+            _STORES[model_key] = get_engine().store
+        else:
+            _STORES[model_key] = store_mod.Store(model_key)
+    return _STORES[model_key]
+
+
+def embeddings_status():
+    """Each registered embedding model + whether its vectors are built."""
+    out = []
+    for key, spec in config.EMBED_MODELS.items():
+        out.append({"key": key, "label": spec["label"], "dim": spec["dim"],
+                    "ready": config.embeddings_path(key).exists(),
+                    "default": key == config.DEFAULT_EMBED})
+    return out
+
+
+_EVAL_CACHE = None
+
+
+def run_eval(refresh=False):
+    """In-domain embedding leaderboard (cached — it embeds the gold queries with
+    every model, which takes a few seconds the first time)."""
+    global _EVAL_CACHE
+    if _EVAL_CACHE is None or refresh:
+        from rhizome import eval_embed
+        _EVAL_CACHE = eval_embed.evaluate()
+    return _EVAL_CACHE
 
 
 def index_ready() -> bool:
@@ -80,6 +120,34 @@ def workflow():
     return stages
 
 
+# ---- passage reader ---------------------------------------------------------
+def passage_with_context(chunk_id: str):
+    """The full chunk plus its immediate neighbours in the same book, for the
+    reader page. Returns None if the id is unknown."""
+    eng = get_engine()
+    store = eng.store
+    i = store.by_id.get(chunk_id)
+    if i is None:
+        return None
+    c = store.chunks[i]
+
+    def brief(j):
+        if j < 0 or j >= len(store.chunks):
+            return None
+        n = store.chunks[j]
+        if n["book_id"] != c["book_id"]:
+            return None
+        return {"id": n["id"], "page": n.get("page"),
+                "text": n["text"][:240] + ("…" if len(n["text"]) > 240 else "")}
+
+    return {
+        "id": c["id"], "book_id": c["book_id"], "author": c.get("author"),
+        "title": c.get("title"), "heading": c.get("heading"), "page": c.get("page"),
+        "text": c["text"],
+        "prev": brief(i - 1), "next": brief(i + 1),
+    }
+
+
 # ---- the live run -----------------------------------------------------------
 def _emit_tokens(emit, eng, stage):
     """Stream this stage's token usage + the running cumulative total."""
@@ -98,49 +166,72 @@ def _emit_tokens(emit, eng, stage):
     })
 
 
-def _struct_axis(eng, seed_text, candidates):
-    """Compute the structural-similarity axis for each candidate.
+def _resolve_seed(store, embed_key, *, theme=None, chunk_id=None, random=False):
+    """Seed → {vec, text, book_id, author, label}, using a chosen model's store."""
+    if theme is not None:
+        return {"vec": embed_mod.embed_query(theme, embed_key), "text": theme,
+                "book_id": None, "author": None, "label": f'theme: "{theme}"'}
+    if chunk_id is not None:
+        i = store.by_id[chunk_id]
+    elif random:
+        i = int(np.random.default_rng().integers(0, len(store.chunks)))
+    else:
+        raise ValueError("need theme=, chunk_id=, or random=True")
+    c = store.chunks[i]
+    label = f"{c['id']} ({c.get('author') or 'Unknown'}, {c.get('title') or c['book_id']})"
+    return {"vec": store.vecs[i], "text": c["text"], "book_id": c["book_id"],
+            "author": c.get("author"), "label": label}
+
+
+def _struct_axis(eng, store, embed_key, seed_text, candidates):
+    """Structural-similarity axis per candidate, in the chosen model's space.
 
     Retrieval ran on the *surface* query vector (direct similarity). Here we ask
     the LLM to name the seed's underlying *structure* (the move beneath its
-    words), embed that, and measure each candidate against it. A passage that
-    scores high structurally but low directly is the rhizomatic ideal: same
-    shape of thought, different vocabulary. Returns {index: struct_sim} or {}.
+    words), embed that with the SAME model, and measure each candidate against
+    it. High structurally + low directly is the rhizomatic ideal: same shape of
+    thought, different vocabulary. Returns ({index: struct_sim}, abstraction).
     """
     if eng.client is None:
         return {}, None
     try:
         abstraction = llm.abstract_seed(seed_text, eng.client)
-        avec = embed_mod.embed_query(abstraction)
+        avec = embed_mod.embed_query(abstraction, embed_key)
     except Exception:
         return {}, None
     out = {}
     for i, c in enumerate(candidates):
-        j = eng.store.by_id.get(c["id"])
+        j = store.by_id.get(c["id"])
         if j is not None:
-            out[i] = round(float(avec @ eng.store.vecs[j]), 4)
+            out[i] = round(float(avec @ store.vecs[j]), 4)
     return out, abstraction
 
 
-def run_explore(emit, *, theme=None, chunk_id=None, random=False, k=config.N_CANDIDATES):
+def run_explore(emit, *, theme=None, chunk_id=None, random=False,
+                k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED):
     eng = get_engine()
-    seed = eng.resolve_seed(theme=theme, chunk_id=chunk_id, random=random)
+    if embed_key not in config.EMBED_MODELS or not config.embeddings_path(embed_key).exists():
+        embed_key = config.DEFAULT_EMBED
+    store = get_store(embed_key)
+    seed = _resolve_seed(store, embed_key, theme=theme, chunk_id=chunk_id, random=random)
     is_question = theme is not None   # a typed query → long answer + follow-ups
     emit("seed", {"label": seed["label"], "text": seed["text"],
-                  "author": seed["author"], "book_id": seed["book_id"]})
+                  "author": seed["author"], "book_id": seed["book_id"],
+                  "embed_key": embed_key,
+                  "embed_label": config.EMBED_MODELS[embed_key]["label"]})
 
-    candidates = eng.store.connections(
+    candidates = store.connections(
         seed["vec"], seed_book_id=seed["book_id"], seed_author=seed["author"], k=k)
 
     # Structural axis (one cheap LLM call) — lets the UI contrast structural
     # similarity against direct dissimilarity for every retrieved passage.
-    struct, abstraction = _struct_axis(eng, seed["text"], candidates)
+    struct, abstraction = _struct_axis(eng, store, embed_key, seed["text"], candidates)
 
     def _direct(c):
         return c.get("similarity") or 0.0
 
     emit("candidates", {
-        "params": {"total_chunks": len(eng.store), "skip_top": config.SKIP_TOP,
+        "params": {"total_chunks": len(store), "skip_top": config.SKIP_TOP,
                    "pool": config.POOL, "min_sim": config.MIN_SIM,
                    "mmr_lambda": config.MMR_LAMBDA,
                    "exclude_same_author": config.EXCLUDE_SAME_AUTHOR},
@@ -168,7 +259,17 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False, k=config.N_CAN
         emit("done", {}); return
 
     emit("stage", {"name": "judge", "status": "running"})
-    verdicts = llm.judge_connections(seed["text"], candidates, eng.client)
+    try:
+        verdicts = llm.judge_connections(seed["text"], candidates, eng.client)
+    except Exception as e:
+        if llm._is_rate_limit(e):
+            emit("note", {"text": "LLM daily token quota reached on all configured "
+                                  "providers — showing the retrieval geometry only. "
+                                  "Judging, synthesis & follow-ups will work again once "
+                                  "a provider's quota resets (or add another key)."})
+        else:
+            emit("note", {"text": f"Judging failed ({type(e).__name__}) — geometry only."})
+        emit("done", {}); return
     vmap = {v.candidate_index: v for v in verdicts}
     confirmed = []
     vout = []
@@ -200,9 +301,15 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False, k=config.N_CAN
 
     if confirmed:
         emit("stage", {"name": "synthesize", "status": "running"})
-        text = llm.synthesize(seed["text"], confirmed, eng.client, long=is_question)
-        emit("exploration", {"text": text})
-        _emit_tokens(emit, eng, "synthesize (long answer)")
+        try:
+            text = llm.synthesize(seed["text"], confirmed, eng.client, long=is_question)
+            emit("exploration", {"text": text})
+            _emit_tokens(emit, eng, "synthesize (long answer)")
+        except Exception as e:
+            msg = ("LLM quota reached — judging done, but synthesis & brainstorm "
+                   "skipped. Try again after a provider resets.") if llm._is_rate_limit(e) \
+                  else f"Synthesis failed: {type(e).__name__}."
+            emit("note", {"text": msg}); emit("done", {}); return
     else:
         emit("note", {"text": "Every candidate read as forced — synthesizing from the "
                               "resonance band instead."})
@@ -221,7 +328,9 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False, k=config.N_CAN
         if bs.follow_ups:
             emit("followups", {"items": bs.follow_ups})
     except Exception as e:
-        emit("note", {"text": f"Brainstorm layer skipped: {type(e).__name__}: {e}"})
+        msg = ("Brainstorm skipped — LLM quota reached (the answer above stands)."
+               if llm._is_rate_limit(e) else f"Brainstorm layer skipped: {type(e).__name__}.")
+        emit("note", {"text": msg})
     emit("done", {})
 
 
@@ -250,8 +359,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        q = parse_qs(urlparse(self.path).query)
         if path in ("/", "/index.html"):
             return self._html(INDEX_HTML.read_text(encoding="utf-8"))
+        if path in ("/reader", "/reader.html"):
+            return self._html(READER_HTML.read_text(encoding="utf-8"))
+        if path in ("/chunkmap", "/chunkmap.html"):
+            cm = ROOT / "chunkmap.html"
+            if not cm.exists():
+                return self._html("<p>Chunk map not built. Run: "
+                                  "<code>python -m tools.chunkmap</code></p>", 404)
+            return self._html(cm.read_text(encoding="utf-8"))
+        if path == "/api/passage":
+            cid = (q.get("id") or [""])[0]
+            data = passage_with_context(cid)
+            return self._json(data or {"error": "unknown chunk id"}, 200 if data else 404)
+        if path == "/api/annotations":
+            return self._json({"items": workspace.list_annotations((q.get("target") or [None])[0])})
+        if path == "/api/chat":
+            return self._json({"messages": workspace.load_chat((q.get("target") or [""])[0])})
+        if path == "/api/sessions":
+            return self._json({"items": workspace.list_sessions()})
+        if path == "/api/session":
+            s = workspace.get_session((q.get("id") or [""])[0])
+            return self._json(s or {"error": "not found"}, 200 if s else 404)
         if path == "/api/status":
             cat = load_catalog()
             info = llm.provider_info()
@@ -269,9 +400,105 @@ class Handler(BaseHTTPRequestHandler):
             })
         if path == "/api/workflow":
             return self._json({"stages": workflow()})
+        if path == "/api/embeddings":
+            return self._json({"models": embeddings_status()})
+        if path == "/api/eval":
+            return self._json(run_eval(refresh=bool(q.get("refresh"))))
+        if path == "/api/compare":
+            return self._compare(q)
         if path == "/api/explore":
             return self._sse_explore(parse_qs(urlparse(self.path).query))
         return self._json({"error": "not found"}, 404)
+
+    def _read_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        except Exception:
+            return {}
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        body = self._read_json()
+        try:
+            if path == "/api/annotations":
+                rec = workspace.add_annotation(
+                    body.get("target", ""), body.get("kind", "note"),
+                    quote=body.get("quote", ""), note=body.get("note", ""),
+                    color=body.get("color", "amber"))
+                return self._json({"ok": True, "annotation": rec})
+            if path == "/api/annotations/delete":
+                ok = workspace.delete_annotation(body.get("id", ""))
+                return self._json({"ok": ok})
+            if path == "/api/chat":
+                return self._chat(body)
+            if path == "/api/session":
+                meta = workspace.save_session(body)
+                return self._json({"ok": True, **meta})
+            if path == "/api/session/delete":
+                ok = workspace.delete_session(body.get("id", ""))
+                return self._json({"ok": ok})
+        except Exception as e:
+            return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+        return self._json({"error": "not found"}, 404)
+
+    def _chat(self, body):
+        target = body.get("target", "")
+        message = (body.get("message") or "").strip()
+        context = body.get("context", "")
+        label = body.get("source_label", "")
+        if not message:
+            return self._json({"error": "empty message"}, 400)
+        eng = get_engine()
+        if eng.client is None:
+            return self._json({"error": "LLM not configured (set a provider key)."}, 503)
+        history = workspace.load_chat(target)
+        workspace.append_chat(target, "user", message)
+        reply = llm.chat(context, history, message, eng.client, source_label=label)
+        workspace.append_chat(target, "assistant", reply)
+        usage = dict(getattr(eng.client, "last_usage", {}) or {})
+        return self._json({"reply": reply, "usage": usage,
+                           "cumulative": getattr(eng.client, "total_usage", {}).get("total", 0)})
+
+    def _compare(self, q):
+        """Run the SAME query through several embedding models (geometry only, no
+        LLM) so the UI can show how retrieval diverges by model."""
+        mode = (q.get("mode") or ["theme"])[0]
+        value = (q.get("value") or [""])[0].strip()
+        k = int((q.get("candidates") or [config.N_CANDIDATES])[0])
+        want = (q.get("models") or [""])[0]
+        keys = [m for m in want.split(",") if m] or [
+            s["key"] for s in embeddings_status() if s["ready"]]
+        keys = [m for m in keys if config.embeddings_path(m).exists()]
+        if mode == "theme" and not value:
+            return self._json({"error": "compare needs a theme value"}, 400)
+
+        results = []
+        for key in keys:
+            try:
+                store = get_store(key)
+                seed = _resolve_seed(
+                    store, key,
+                    theme=value if mode == "theme" else None,
+                    chunk_id=value if mode == "chunk" else None,
+                    random=(mode == "random"))
+                cands = store.connections(
+                    seed["vec"], seed_book_id=seed["book_id"],
+                    seed_author=seed["author"], k=k)
+                results.append({
+                    "key": key, "label": config.EMBED_MODELS[key]["label"],
+                    "dim": config.EMBED_MODELS[key]["dim"],
+                    "items": [{"chunk_id": c["id"], "author": c.get("author") or "Unknown",
+                               "title": c.get("title") or c["book_id"], "page": c.get("page"),
+                               "rank": c.get("rank"), "similarity": c.get("similarity"),
+                               "text": c["text"][:240] + ("…" if len(c["text"]) > 240 else "")}
+                              for c in cands],
+                })
+            except Exception as e:
+                results.append({"key": key, "label": key, "error": f"{type(e).__name__}: {e}"})
+        return self._json({"mode": mode, "value": value, "k": k, "results": results})
 
     def _sse_explore(self, q):
         self.send_response(200)
@@ -297,7 +524,8 @@ class Handler(BaseHTTPRequestHandler):
             mode = (q.get("mode") or ["random"])[0]
             k = int((q.get("candidates") or [config.N_CANDIDATES])[0])
             value = (q.get("value") or [""])[0].strip()
-            kwargs = {"k": k}
+            embed_key = (q.get("embed") or [config.DEFAULT_EMBED])[0]
+            kwargs = {"k": k, "embed_key": embed_key}
             if mode == "theme" and value:
                 kwargs["theme"] = value
             elif mode == "chunk" and value:
