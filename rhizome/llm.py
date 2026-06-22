@@ -21,6 +21,17 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from . import config
+
+
+def _clip(text: str) -> str:
+    """Token economy: cap passage text sent into prompts (the same passages go to
+    judge + synthesis + brainstorm, so this is the biggest lever on tokens/run)."""
+    lim = config.LLM_PASSAGE_CHARS
+    if not lim or len(text) <= lim:
+        return text
+    return text[:lim].rstrip() + "…"
+
 
 # --- provider registry -------------------------------------------------------
 PROVIDERS = {
@@ -333,13 +344,13 @@ def _cite(c: dict) -> str:
 
 def judge_connections(seed_text: str, candidates: list[dict], client: LLMClient) -> list[Verdict]:
     listing = "\n\n".join(
-        f"[CANDIDATE {i}] — {_cite(c)}\n{c['text']}"
+        f"[CANDIDATE {i}] — {_cite(c)}\n{_clip(c['text'])}"
         for i, c in enumerate(candidates)
     )
-    user = (f"SEED:\n{seed_text}\n\nCANDIDATES:\n{listing}\n\n"
+    user = (f"SEED:\n{_clip(seed_text)}\n\nCANDIDATES:\n{listing}\n\n"
             f"Return a verdict for every candidate index 0..{len(candidates) - 1}."
             + JUDGE_JSON_SPEC)
-    raw = client.complete(JUDGE_SYSTEM, user, max_tokens=4000,
+    raw = client.complete(JUDGE_SYSTEM, user, max_tokens=config.JUDGE_MAX_TOKENS,
                           temperature=0.4, json_mode=True)
     return _parse_verdicts(raw)
 
@@ -369,12 +380,13 @@ def synthesize(seed_text: str, confirmed: list[dict], client: LLMClient,
                *, long: bool = False) -> str:
     blocks = "\n\n".join(
         f"[{i}] {_cite(c)}\nbridge: {c['bridge_concept']}\n"
-        f"why: {c['articulation']}\npassage: {c['text']}"
+        f"why: {c['articulation']}\npassage: {_clip(c['text'])}"
         for i, c in enumerate(confirmed)
     )
-    user = f"SEED:\n{seed_text}\n\nCONFIRMED CONNECTIONS:\n{blocks}"
+    user = f"SEED:\n{_clip(seed_text)}\n\nCONFIRMED CONNECTIONS:\n{blocks}"
     system = SYNTH_LONG_SYSTEM if long else SYNTH_SYSTEM
-    text = client.complete(system, user, max_tokens=6000 if long else 2200,
+    max_tok = config.SYNTH_LONG_MAX_TOKENS if long else config.SYNTH_SHORT_MAX_TOKENS
+    text = client.complete(system, user, max_tokens=max_tok,
                            temperature=0.85, json_mode=False)
     return text.strip()
 
@@ -384,9 +396,9 @@ def follow_up_questions(seed_text: str, passages: list[dict], client: LLMClient,
     """LLM + RAG: five next questions grounded in the retrieved passages, each
     opening a different line of flight rather than restating the query."""
     blocks = "\n\n".join(
-        f"[{i}] {_cite(c)}\n{c['text']}" for i, c in enumerate(passages)
+        f"[{i}] {_cite(c)}\n{_clip(c['text'])}" for i, c in enumerate(passages)
     )
-    user = (f"QUERY:\n{seed_text}\n\nPASSAGES THE ENGINE RETRIEVED:\n{blocks}\n\n"
+    user = (f"QUERY:\n{_clip(seed_text)}\n\nPASSAGES THE ENGINE RETRIEVED:\n{blocks}\n\n"
             f"Propose {n} follow-up questions as JSON.")
     raw = client.complete(FOLLOWUP_SYSTEM, user, max_tokens=900,
                           temperature=0.9, json_mode=True)
@@ -459,15 +471,43 @@ def _strip_json(raw: str):
         return json.loads(txt[i:j + 1]) if i != -1 and j != -1 else {}
 
 
+CHAT_SYSTEM = """\
+You are a thinking companion in RhizomeDB, discussing a specific passage (or an \
+exploration the engine wrote) with a reader. Engage closely and precisely with \
+the text in front of you and the philosophical tradition it belongs to. When \
+the reader points at a line, work with that line. Be substantive — explain, \
+draw connections, push back, open questions — but stay grounded in the passage; \
+do not invent citations. Speak plainly, in flowing prose (no bullet lists \
+unless asked). Keep replies focused (~150-350 words) unless the reader asks for \
+more."""
+
+
+def chat(context_text: str, history: list[dict], message: str, client: LLMClient,
+         *, source_label: str = "") -> str:
+    """A grounded, multi-turn discussion about a passage/exploration. History is
+    a list of {role: 'user'|'assistant', content: str}; folded into the prompt."""
+    convo = "\n".join(
+        f"{'Reader' if m.get('role') == 'user' else 'Companion'}: {m.get('content', '')}"
+        for m in (history or [])
+    )
+    hdr = f" — {source_label}" if source_label else ""
+    user = f"TEXT UNDER DISCUSSION{hdr}:\n{context_text}\n\n"
+    if convo:
+        user += f"CONVERSATION SO FAR:\n{convo}\n\n"
+    user += f"Reader: {message}\n\nReply as the companion."
+    return client.complete(CHAT_SYSTEM, user, max_tokens=1400,
+                           temperature=0.8, json_mode=False).strip()
+
+
 def brainstorm(seed_text: str, passages: list[dict], client: LLMClient) -> Brainstorm:
     """One call → line of interpretations + comparisons + follow-ups, all
     grounded in the retrieved passages. Cheaper than three separate calls."""
     blocks = "\n\n".join(
-        f"[PASSAGE {i}] — {_cite(c)}\n{c['text']}" for i, c in enumerate(passages)
+        f"[PASSAGE {i}] — {_cite(c)}\n{_clip(c['text'])}" for i, c in enumerate(passages)
     )
-    user = (f"QUERY:\n{seed_text}\n\nPASSAGES:\n{blocks}\n\n"
+    user = (f"QUERY:\n{_clip(seed_text)}\n\nPASSAGES:\n{blocks}\n\n"
             f"Passage indices run 0..{len(passages) - 1}. Return the JSON object.")
-    raw = client.complete(BRAINSTORM_SYSTEM, user, max_tokens=2600,
+    raw = client.complete(BRAINSTORM_SYSTEM, user, max_tokens=config.BRAINSTORM_MAX_TOKENS,
                           temperature=0.85, json_mode=True)
     try:
         return Brainstorm(**_strip_json(raw))
