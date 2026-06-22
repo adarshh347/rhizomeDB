@@ -55,15 +55,25 @@ def _context(sources: list[dict]) -> str:
     )
 
 
-def answer(question: str, store, client, k: int = 6) -> dict:
-    """Embed the question, retrieve top-k, answer grounded in those passages."""
+def answer(question: str, store, client, k: int = 6,
+           expand_to_parents: bool = False) -> dict:
+    """Embed the question, retrieve top-k from `store` (which is bound to a level
+    on the SOLID→LIQUID dial), answer grounded in those passages. With
+    expand_to_parents, do small-to-big: match the precise units but hand the LLM
+    their larger PARENT passages (the dial's core mechanism)."""
     qvec = embed.embed_query(question)
-    sources = retrieve(store, qvec, k)
+    matched = retrieve(store, qvec, k)
+    sources = matched
+    if expand_to_parents and getattr(store, "level", "chunk") != "parent":
+        from . import chunking
+        parents = chunking.parents_of(matched)
+        if parents:
+            sources = parents
     user = (f"QUESTION:\n{question}\n\nPASSAGES:\n{_context(sources)}\n\n"
             f"Write a thorough, long answer grounded in the passages, citing [n].")
     text = client.complete(ANSWER_SYSTEM, user, max_tokens=3000,
                            temperature=0.5, json_mode=False)
-    return {"answer": text.strip(), "sources": sources}
+    return {"answer": text.strip(), "sources": sources, "matched": matched}
 
 
 def followups(question: str, sources: list[dict], client, n: int = 5) -> list[str]:

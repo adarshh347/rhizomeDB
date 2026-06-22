@@ -12,17 +12,35 @@ excludes only the seed's own *book*, not its author, so relational surprise can
 be found *within* a single corpus (intra-corpus constellation), which is the
 deeper aim — cross-author was only ever a proxy for distance.
 """
+import json
+
 import numpy as np
 
 from . import config, chunk as chunk_mod
 
 
 class Store:
-    def __init__(self):
-        self.chunks = chunk_mod.load_chunks()
-        self.vecs = np.load(config.EMBEDDINGS_PATH)  # (N, dim), normalized
+    def __init__(self, model_key: str = config.DEFAULT_EMBED,
+                 level: str = config.DEFAULT_LEVEL):
+        self.model_key = model_key
+        self.level = level
+        cpath = config.chunks_path(level)
+        if level == "chunk":
+            self.chunks = chunk_mod.load_chunks()
+        else:
+            if not cpath.exists():
+                raise SystemExit(f"Level '{level}' not built ({cpath}). "
+                                 f"Run: python -m rhizome.cli build --levels {level}")
+            with cpath.open(encoding="utf-8") as f:
+                self.chunks = [json.loads(ln) for ln in f]
+        path = config.level_emb_path(level, model_key)
+        if not path.exists():
+            raise SystemExit(f"Embeddings for level '{level}'/'{model_key}' not built "
+                             f"({path}). Run: python -m rhizome.cli embed --model {model_key}"
+                             + ("" if level == "chunk" else f" / build --levels {level}"))
+        self.vecs = np.load(path)  # (N, dim), normalized
         if len(self.chunks) != len(self.vecs):
-            raise SystemExit("chunks.jsonl and embeddings.npy are out of sync — rebuild.")
+            raise SystemExit(f"{cpath.name} and {path.name} are out of sync — rebuild.")
         self.by_id = {c["id"]: i for i, c in enumerate(self.chunks)}
 
     def __len__(self):
