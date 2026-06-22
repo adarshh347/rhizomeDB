@@ -1,0 +1,11 @@
+# Conversion (books -> Markdown)
+pymupdf4llm
+mobi
+# Embeddings (local, ONNX — no torch)
+fastembed
+numpy
+# Connection engine brain
+anthropic
+pydantic
+# (boto3 only needed for the optional R2 upload script)
+boto3
