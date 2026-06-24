@@ -14,7 +14,7 @@ import hashlib
 import json
 import time
 
-from . import config, llm, chunking
+from . import config, llm, chunking, usage
 
 # Polite pause between LLM batches so free-tier per-minute token limits don't
 # trip on back-to-back calls. Override with RHIZOME_BATCH_PAUSE (seconds).
@@ -81,7 +81,7 @@ def enrich_contextual(level: str = "chunk", books=None, sample=None,
     todo = [r for r in targets if _hash(r["text"]) not in cache]
     print(f"contextual[{level}]: {len(targets)} in scope, {len(todo)} need generation "
           f"({len(targets)-len(todo)} cached)")
-    t0 = _tokens(client)
+    t0 = _tokens(client); calls = 0
     for batch_recs in _batches(todo, batch):
         listing = "\n\n".join(
             f"[{i}] {r.get('author') or 'Unknown'} — {r.get('title') or r['book_id']}"
@@ -91,7 +91,7 @@ def enrich_contextual(level: str = "chunk", books=None, sample=None,
         try:
             raw = client.complete(CONTEXT_SYSTEM, listing, max_tokens=1500,
                                   temperature=0.3, json_mode=True)
-            obj = llm._strip_json(raw)
+            obj = llm._strip_json(raw); calls += 1
         except Exception as e:
             print(f"  batch failed ({type(e).__name__}); skipping"); continue
         for i, r in enumerate(batch_recs):
@@ -108,7 +108,8 @@ def enrich_contextual(level: str = "chunk", books=None, sample=None,
             r["context_blurb"] = b; n_set += 1
     chunking.save_level(level, records)
     used = _tokens(client) - t0
-    print(f"contextual[{level}]: {n_set} blurbs set · {used} tokens "
+    note = usage.note_and_record(client, used, calls)
+    print(f"contextual[{level}]: {n_set} blurbs set · {used} tokens{note} "
           f"· re-embed with: rhizome embed (level {level})")
     return {"set": n_set, "tokens": used}
 
@@ -144,13 +145,13 @@ def characterize(level: str = "chunk", books=None, sample=None,
     todo = [r for r in targets if _hash(r["text"]) not in cache]
     print(f"character[{level}]: {len(targets)} in scope, {len(todo)} need tagging "
           f"({len(targets)-len(todo)} cached)")
-    t0 = _tokens(client)
+    t0 = _tokens(client); calls = 0
     for batch_recs in _batches(todo, batch):
         listing = "\n\n".join(f"[{i}] {r['text'][:600]}" for i, r in enumerate(batch_recs))
         try:
             raw = client.complete(system, listing, max_tokens=1800,
                                   temperature=0.2, json_mode=True)
-            obj = llm._strip_json(raw)
+            obj = llm._strip_json(raw); calls += 1
         except Exception as e:
             print(f"  batch failed ({type(e).__name__}); skipping"); continue
         for i, r in enumerate(batch_recs):
@@ -171,7 +172,8 @@ def characterize(level: str = "chunk", books=None, sample=None,
             n_set += 1; dist[c["character"]] += 1
     chunking.save_level(level, records)
     used = _tokens(client) - t0
-    print(f"character[{level}]: {n_set} tagged · {used} tokens · {dict(dist)}")
+    note = usage.note_and_record(client, used, calls)
+    print(f"character[{level}]: {n_set} tagged · {used} tokens{note} · {dict(dist)}")
     return {"set": n_set, "tokens": used, "dist": dict(dist)}
 
 
@@ -201,13 +203,13 @@ def build_propositions(books=None, sample=None, batch: int = 6) -> dict:
     todo = [c for c in targets if _hash(c["text"]) not in cache]
     print(f"proposition: {len(targets)} chunks in scope, {len(todo)} need extraction "
           f"({len(targets)-len(todo)} cached)")
-    t0 = _tokens(client)
+    t0 = _tokens(client); calls = 0
     for batch_recs in _batches(todo, batch):
         listing = "\n\n".join(f"[{i}] {r['text'][:900]}" for i, r in enumerate(batch_recs))
         try:
             raw = client.complete(PROP_SYSTEM, listing, max_tokens=2200,
                                   temperature=0.2, json_mode=True)
-            obj = llm._strip_json(raw)
+            obj = llm._strip_json(raw); calls += 1
         except Exception as e:
             print(f"  batch failed ({type(e).__name__}); skipping"); continue
         for i, r in enumerate(batch_recs):
@@ -239,7 +241,8 @@ def build_propositions(books=None, sample=None, batch: int = 6) -> dict:
     chunking.save_level("proposition", props)
     chunking.save_level("chunk", chunks)
     used = _tokens(client) - t0
-    print(f"proposition: {len(props)} propositions from {len(targets)} chunks · {used} tokens "
+    note = usage.note_and_record(client, used, calls)
+    print(f"proposition: {len(props)} propositions from {len(targets)} chunks · {used} tokens{note} "
           f"-> {config.chunks_path('proposition')}")
     print("  re-embed with: rhizome embed-level proposition")
     return {"props": len(props), "tokens": used}

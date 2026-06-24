@@ -1,7 +1,7 @@
 """The connection engine: seed → candidates → judge → synthesize → wander."""
 import numpy as np
 
-from . import config, embed, llm, graph
+from . import config, embed, llm, graph, usage
 from .store import Store
 
 
@@ -35,6 +35,7 @@ class Engine:
         s = self.resolve_seed(theme=theme, chunk_id=chunk_id, random=random)
         vec, seed_text, book_id, author, seed_label = (
             s["vec"], s["text"], s["book_id"], s["author"], s["label"])
+        meter = usage.Meter(self.client)   # attribute tokens to each part of the run
 
         # Structural-HyDE: retrieve on the seed's underlying *move/structure*
         # rather than its surface words, so structurally-kindred passages that
@@ -42,6 +43,7 @@ class Engine:
         abstraction = None
         if structural and self.client is not None:
             abstraction = llm.abstract_seed(seed_text, self.client)
+            meter.mark("structural seed")
             vec = embed.embed_query(abstraction)
 
         candidates = self.store.connections(
@@ -56,12 +58,14 @@ class Engine:
             "confirmed": [],
             "exploration": None,
             "mode": "geometry-only",
+            "usage": meter.report(),
         }
         if not candidates or self.client is None:
             return result
 
         # judge — keep genuine, drop forced
         verdicts = llm.judge_connections(seed_text, candidates, self.client)
+        meter.mark("judge")
         vmap = {v.candidate_index: v for v in verdicts}
         confirmed = []
         for i, c in enumerate(candidates):
@@ -81,6 +85,8 @@ class Engine:
             if persist:
                 graph.append_judged(seed_label, confirmed)   # accrete into the graph
             result["exploration"] = llm.synthesize(seed_text, confirmed, self.client)
+            meter.mark("synthesize")
+        result["usage"] = meter.report()
         return result
 
     # --- wander: follow a connection as the next seed -------------------

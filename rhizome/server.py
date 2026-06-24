@@ -56,12 +56,15 @@ def run_explore(body: dict) -> dict:
                     "bridge_concept": c.get("bridge_concept"),
                     "articulation": c.get("articulation"),
                     "text": (c.get("text") or "")[:400]}
+        from . import usage
+        usage.record_report(step.get("usage"))   # accrue into today's free-tier ledger
         return {
             "mode": step["mode"], "seed_label": step["seed_label"],
             "abstraction": step.get("abstraction"),
             "candidates": [slim(c) for c in step["candidates"]],
             "confirmed": [slim(c) for c in step["confirmed"]],
             "exploration": step["exploration"],
+            "usage": step.get("usage"),
         }
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}",
@@ -184,6 +187,8 @@ h3{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mu
 textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:8px;font:inherit;font-size:13px;resize:vertical}
 .res{font-size:13px;margin-top:10px}.res .c{border-left:2px solid var(--line);padding:4px 0 4px 10px;margin:7px 0}
 .expl{background:#F1EADD;border-radius:10px;padding:12px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;margin-top:10px}
+.usage{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted);margin-top:10px}
+.usage b{color:var(--ink)}.upart{display:inline-block;background:#EBE4D6;border-radius:12px;padding:1px 8px;margin:4px 6px 0 0}
 .sec{margin-top:20px}
 </style></head><body><div id="root"></div>
 <script type="text/babel" data-presets="react">
@@ -239,7 +244,12 @@ function Explore({onChange}){const [t,setT]=useState(""),[st,setSt]=useState(fal
       {(res.confirmed.length?res.confirmed:res.candidates).map((c,k)=>
         <div className="c" key={k}><b>{c.author}</b> — {c.title}{c.bridge_concept?` · ${c.bridge_concept}`:""}
         <br/><span style={{color:"#5a5249"}}>{c.articulation||c.text}</span></div>)}
-      {res.exploration&&<div className="expl">{res.exploration}</div>}</div>}</div>;}
+      {res.exploration&&<div className="expl">{res.exploration}</div>}
+      {res.usage&&res.usage.total_tokens>0&&<div className="usage">
+        <b>tokens</b> {res.usage.total_tokens.toLocaleString()}
+        {res.usage.is_gemini?` · ${res.usage.pct_day.toFixed(2)}% of the free-tier day · ${res.usage.requests} req`:` · ${res.usage.requests} req`}
+        {res.usage.parts.map((p,k)=><span key={k} className="upart">{p.label} {p.tokens.toLocaleString()}{res.usage.is_gemini?` (${p.pct_day.toFixed(2)}%)`:""}</span>)}
+      </div>}</div>}</div>;}
 
 function App(){const [d,setD]=useState(null);
   const load=()=>api("/api/state").then(setD);

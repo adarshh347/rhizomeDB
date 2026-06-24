@@ -11,7 +11,7 @@ import argparse
 import textwrap
 
 from . import (catalog, chunk as chunk_mod, embed as embed_mod, config,
-               notes as notes_mod, graph as graph_mod)
+               notes as notes_mod, graph as graph_mod, usage as usage_mod)
 
 
 def _wrap(s, width=88, indent="    "):
@@ -151,6 +151,20 @@ def _print_step(step):
         print()
 
 
+def _show_usage(step):
+    """Print the token breakdown for a run and accrue it into the daily ledger
+    (Gemini only). No-op when geometry-only / no LLM tokens were spent."""
+    rep = (step or {}).get("usage")
+    if not rep or not rep.get("total_tokens"):
+        return
+    today = usage_mod.record_report(rep)   # accumulate today's free-tier usage
+    text = usage_mod.format_report(rep, today=today)
+    if text:
+        print("-" * 90)
+        print(text)
+        print()
+
+
 def cmd_explore(args):
     from .engine import Engine
     eng = Engine(seed_int=args.seed)
@@ -160,6 +174,7 @@ def cmd_explore(args):
     step = eng.explore(theme=theme, chunk_id=args.chunk, random=args.random,
                        structural=args.structural, k=args.candidates)
     _print_step(step)
+    _show_usage(step)
 
 
 def cmd_wander(args):
@@ -171,6 +186,12 @@ def cmd_wander(args):
     for n, step in enumerate(path, 1):
         print(f"\n########## STEP {n}/{len(path)} ##########")
         _print_step(step)
+        _show_usage(step)
+
+
+def cmd_usage(_):
+    """How much of today's Gemini free-tier budget is already spent."""
+    print(usage_mod.format_day())
 
 
 def main():
@@ -214,6 +235,8 @@ def main():
                    ).set_defaults(func=cmd_chunkmap)
     sub.add_parser("eval-embed", help="score embedding models on the in-domain gold set"
                    ).set_defaults(func=cmd_eval_embed)
+    sub.add_parser("usage", help="show today's Gemini free-tier token/request usage"
+                   ).set_defaults(func=cmd_usage)
     sub.add_parser("notes", help="parse annotated reading notes -> annotations.jsonl").set_defaults(func=cmd_notes)
     sub.add_parser("graph", help="build the concept graph (edges) from notes").set_defaults(func=cmd_graph)
 

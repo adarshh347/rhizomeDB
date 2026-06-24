@@ -149,3 +149,23 @@ BRAINSTORM_MAX_TOKENS = 2000     # brainstorm output cap (was 2600)
 
 # LLM (the judging + synthesis brain).
 LLM_MODEL = "claude-opus-4-8"
+
+
+# --- Gemini free-tier budget (token-usage accounting; see usage.py) -----------
+# The Google AI Studio free tier rate-limits the Gemini API per model. These are
+# the published gemini-2.5-flash limits as of early 2026 — override any of them
+# via the matching env var if your tier differs (billing enabled, -lite model…).
+#   RPM  requests / minute     TPM  tokens / minute     RPD  requests / day
+# Google does NOT publish a hard tokens-per-DAY cap, so we expose a configurable
+# daily token *budget* to answer "how much of my day did this run cost?". It
+# defaults to RPD × 4000 tokens/request (== 1,000,000) — adjust to taste.
+def _envf(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name) or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+GEMINI_FREE_RPM = _envf("GEMINI_FREE_RPM", 10)
+GEMINI_FREE_TPM = _envf("GEMINI_FREE_TPM", 250_000)
+GEMINI_FREE_RPD = _envf("GEMINI_FREE_RPD", 250)
+GEMINI_FREE_DAILY_TOKENS = _envf("GEMINI_FREE_DAILY_TOKENS", GEMINI_FREE_RPD * 4000)
