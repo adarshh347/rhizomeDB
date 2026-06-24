@@ -365,13 +365,13 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/reader", "/reader.html"):
             return self._html(READER_HTML.read_text(encoding="utf-8"))
         if path in ("/chunkmap", "/chunkmap.html"):
-            cm = ROOT / "chunkmap.html"
+            cm = ROOT / "build" / "chunkmap.html"
             if not cm.exists():
                 return self._html("<p>Chunk map not built. Run: "
                                   "<code>python -m tools.chunkmap</code></p>", 404)
             return self._html(cm.read_text(encoding="utf-8"))
         if path in ("/conceptmap", "/conceptmap.html"):
-            cm = ROOT / "conceptmap.html"
+            cm = ROOT / "build" / "conceptmap.html"
             if not cm.exists():
                 return self._html("<p>Concept map not built. Run: "
                                   "<code>python -m rhizome.cli concepts &amp;&amp; "

@@ -11,6 +11,5 @@ workspace/
 books/
 index/
 
-# Generated, self-contained map artifacts (regenerate via the CLI map builders)
-chunkmap.html
-conceptmap.html
+# Generated, self-contained HTML artifacts (regenerate via the CLI / tools)
+build/

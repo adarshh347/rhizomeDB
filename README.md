@@ -60,10 +60,10 @@ Without a key, `explore` still runs and prints the raw **resonance band**
 .venv/bin/python -m rhizome.cli build      # catalog -> chunk -> embed
 ```
 
-This writes `catalog.json`, `index/chunks.jsonl`, and `index/embeddings.npy`.
-Re-run after adding books to `converted/` (drop new books in `books/`, run
-`convert_books.py`, then `build`). Edit `catalog.json` to fix any author/title
-for books the catalogue couldn't identify.
+This writes `data/catalog.json`, `index/chunks.jsonl`, and `index/embeddings.npy`.
+Re-run after adding books to `data/converted/` (drop new books in `books/`, run
+`scripts/convert_books.py`, then `build`). Edit `data/catalog.json` to fix any
+author/title for books the catalogue couldn't identify.
 
 ## Explore
 
@@ -118,15 +118,27 @@ feel like noise, raise `MIN_SIM`.
 ## Layout
 
 ```
-books/                 original PDFs / EPUBs / MOBIs (untouched)
-converted/             Markdown (one file per book)  ← see convert_books.py
-catalog.json           author / title / year per book
-index/                 chunks.jsonl + embeddings.npy
+README.md              this file
+requirements.txt       Python dependencies
+serve.py               web panel + API server (python serve.py)
+books/                 original PDFs / EPUBs / MOBIs (untouched, gitignored)
+data/                  corpus + metadata + human inputs
+  catalog.json         author / title / year per book
+  converted/           Markdown, one file per book  ← see scripts/convert_books.py
+  notes/               annotated reading notes (the human half of the loop)
+  eval/                in-domain embedding gold set
+index/                 generated: chunks.jsonl + embeddings.npy (gitignored)
+build/                 generated: self-contained HTML maps (gitignored)
+scripts/               convert_books.py · upload_to_r2.py (one-off pipeline)
+docs/                  CHUNKING · FORMATS · OPERATING · ROADMAP · SCHEMA · VISION · PRD-chunking
+frontend/              panel + reader UI
+tools/                 chunkmap · conceptmap · docgraph · panel generators
 rhizome/               the engine
   config.py            paths + tunable geometry
   catalog.py           corpus metadata
-  chunk.py             Markdown → passages (+ page/heading provenance)
-  embed.py             local ONNX embeddings
+  chunk.py / chunking.py   Markdown → passages (+ multi-resolution levels)
+  embed.py             local ONNX embeddings (multi-model)
+  concepts.py          core-concept extraction (content lens)
   store.py             in-memory index + rhizomatic retrieval geometry
   llm.py               Claude judging (structured) + synthesis
   engine.py            seed → candidates → judge → synthesize → wander

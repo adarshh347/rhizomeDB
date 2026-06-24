@@ -195,7 +195,8 @@ def main():
     here = pathlib.Path(__file__).resolve().parent.parent
     data = gather()
     page = PAGE.replace("__DATA__", json.dumps(data)).replace("__WHEN__", data["when"])
-    out = here / "panel.html"
+    out = here / "build" / "panel.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8")
     s = data["status"]
     print(f"panel -> {out}")

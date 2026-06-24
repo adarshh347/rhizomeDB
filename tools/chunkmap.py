@@ -20,7 +20,7 @@ from rhizome import config
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_JSON = config.INDEX_DIR / "chunkmap.json"
-OUT_HTML = ROOT / "chunkmap.html"
+OUT_HTML = config.BUILD_DIR / "chunkmap.html"
 
 # character → colour (controlled vocab from config); 'untagged' falls back
 CHAR_COLORS = {
@@ -125,6 +125,7 @@ def build():
     data = {"nodes": nodes, "edges": edges, "stats": stats,
             "char_colors": CHAR_COLORS, "level_shape": LEVEL_SHAPE}
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    config.BUILD_DIR.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(data), encoding="utf-8")
     print(f"Wrote {OUT_JSON}  ({len(nodes)} nodes, {len(edges)} edges)")
     OUT_HTML.write_text(_html(data), encoding="utf-8")

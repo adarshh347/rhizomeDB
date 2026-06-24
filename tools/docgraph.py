@@ -222,7 +222,7 @@ def main():
     here = pathlib.Path(__file__).resolve().parent.parent
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", action="append", default=None, help="directory to scan (repeatable)")
-    ap.add_argument("--out", default=str(here / "docs_map.html"))
+    ap.add_argument("--out", default=str(here / "build" / "docs_map.html"))
     args = ap.parse_args()
 
     if args.dir:
@@ -241,6 +241,7 @@ def main():
             .replace("__E__", str(len(edges)))
             .replace("__WHEN__", dt.datetime.now().strftime("%Y-%m-%d %H:%M")))
     out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8")
     print(f"{len(docs)} docs, {len(edges)} edges -> {out}")
     for d in docs:

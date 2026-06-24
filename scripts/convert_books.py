@@ -19,8 +19,9 @@ import pymupdf
 # text layer underneath. pymupdf4llm drops that layer; pdftotext recovers it.
 MIN_CHARS_PER_PAGE = 200
 
-SRC_ROOT = pathlib.Path("books")
-OUT_ROOT = pathlib.Path("converted")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC_ROOT = ROOT / "books"
+OUT_ROOT = ROOT / "data" / "converted"
 
 # Map messy source filenames -> clean output slugs.
 CLEAN_NAMES = {

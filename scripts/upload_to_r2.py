@@ -25,8 +25,9 @@ import hashlib
 import datetime
 import pathlib
 
-SRC_ROOT = pathlib.Path("converted")
-MANIFEST = pathlib.Path("r2_manifest.json")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC_ROOT = ROOT / "data" / "converted"
+MANIFEST = ROOT / "index" / "r2_manifest.json"
 
 
 def sha256(path: pathlib.Path) -> str:

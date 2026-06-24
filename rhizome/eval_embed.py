@@ -15,7 +15,7 @@ import numpy as np
 
 from . import config, embed as embed_mod, store as store_mod
 
-GOLD_PATH = config.ROOT / "eval" / "embed_gold.jsonl"
+GOLD_PATH = config.DATA_DIR / "eval" / "embed_gold.jsonl"
 KS = (1, 3, 5, 10)
 
 

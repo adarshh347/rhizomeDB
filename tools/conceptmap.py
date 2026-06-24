@@ -26,7 +26,7 @@ from rhizome import config, concepts as concepts_mod, chunking
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_JSON = config.INDEX_DIR / "conceptmap.json"
-OUT_HTML = ROOT / "conceptmap.html"
+OUT_HTML = config.BUILD_DIR / "conceptmap.html"
 
 # A calm, distinguishable palette assigned to books (dominant-book colouring).
 PALETTE = ["#7fb0a3", "#d98c5f", "#9b8cd9", "#d9c45f", "#d97fb0",
@@ -118,6 +118,7 @@ def build():
             "book_color": book_color, "stats": stats}
 
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    config.BUILD_DIR.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(data), encoding="utf-8")
     print(f"Wrote {OUT_JSON}  ({C} concepts, {len(edges)} edges, mode={cdata.get('mode')})")
     OUT_HTML.write_text(_html(data), encoding="utf-8")

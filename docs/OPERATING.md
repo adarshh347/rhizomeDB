@@ -25,7 +25,7 @@ talks. Nothing here needs to be rushed — depth over speed.
    guide and theory notes are living, not write-once.
 
 5. **The context window** — *(automated).* `tools/docgraph.py` regenerates
-   `docs_map.html`, an interactive map of every document and how they connect —
+   `build/docs_map.html`, an interactive map of every document and how they connect —
    so the whole can be grasped at a glance. Regenerate whenever the doc corpus
    shifts (or schedule it).
 
@@ -62,8 +62,8 @@ rhizome graph                 # rebuild the concept graph (authored + note + jud
 rhizome explore --note <id>   # evoke from a note's sutra/anchor
 rhizome explore --structural  # retrieve on the seed's underlying form (structural-HyDE)
 rhizome wander --random --steps 3
-python3 tools/docgraph.py      # regenerate the context-window map (docs_map.html)
-python3 tools/panel.py         # static guided panel snapshot (panel.html)
+python3 tools/docgraph.py      # regenerate the context-window map (build/docs_map.html)
+python3 tools/panel.py         # static guided panel snapshot (build/panel.html)
 python3 -m rhizome.server      # LIVE panel -> http://127.0.0.1:8765 (auto-updating; leave it on)
 ```
 

@@ -27,15 +27,17 @@ def _load_dotenv():
 
 
 _load_dotenv()
-CONVERTED_DIR = ROOT / "converted"
+DATA_DIR = ROOT / "data"           # corpus, metadata, reading notes, eval sets
+BUILD_DIR = ROOT / "build"         # generated, self-contained HTML artifacts
+CONVERTED_DIR = DATA_DIR / "converted"
 INDEX_DIR = ROOT / "index"
-CATALOG_PATH = ROOT / "catalog.json"
+CATALOG_PATH = DATA_DIR / "catalog.json"
 
 CHUNKS_PATH = INDEX_DIR / "chunks.jsonl"
 EMBEDDINGS_PATH = INDEX_DIR / "embeddings.npy"
 
 # Annotated reading notes (the human half of the loop — see SCHEMA.md).
-NOTES_DIR = ROOT / "notes"
+NOTES_DIR = DATA_DIR / "notes"
 ANNOTATIONS_PATH = INDEX_DIR / "annotations.jsonl"
 
 # Concept graph — human-authored bridges (corr annotations) + judged bridges.
