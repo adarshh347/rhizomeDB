@@ -109,6 +109,21 @@ def cmd_chunkmap(_):
     chunkmap.build()
 
 
+def cmd_concepts(args):
+    """Extract core concepts per chunk (the content lens). Heuristic by default;
+    --llm for clean conceptual phrases when a provider key is set."""
+    from . import concepts
+    if args.llm:
+        concepts.extract_llm(level=args.level, books=args.book, sample=args.sample)
+    else:
+        concepts.extract_heuristic(level=args.level, top_concepts=args.top)
+
+
+def cmd_conceptmap(_):
+    from tools import conceptmap
+    conceptmap.build()
+
+
 def cmd_eval_embed(_):
     from . import eval_embed
     eval_embed.main()
@@ -233,6 +248,17 @@ def main():
 
     sub.add_parser("chunkmap", help="(re)build the chunk map (json + offline html)"
                    ).set_defaults(func=cmd_chunkmap)
+
+    cp = sub.add_parser("concepts", help="extract core concepts per chunk (content lens)")
+    cp.add_argument("--llm", action="store_true", help="LLM concepts (needs key); else heuristic tf-idf")
+    cp.add_argument("--level", default="chunk")
+    cp.add_argument("--top", type=int, default=160, help="vocabulary size (heuristic)")
+    cp.add_argument("--sample", type=int, default=None)
+    cp.add_argument("--book", nargs="+", default=None)
+    cp.set_defaults(func=cmd_concepts)
+    sub.add_parser("conceptmap", help="(re)build the concept map (json + offline html)"
+                   ).set_defaults(func=cmd_conceptmap)
+
     sub.add_parser("eval-embed", help="score embedding models on the in-domain gold set"
                    ).set_defaults(func=cmd_eval_embed)
     sub.add_parser("usage", help="show today's Gemini free-tier token/request usage"

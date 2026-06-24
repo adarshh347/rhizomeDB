@@ -10,3 +10,7 @@ workspace/
 # Large data files (books stored in R2; index is regenerable)
 books/
 index/
+
+# Generated, self-contained map artifacts (regenerate via the CLI map builders)
+chunkmap.html
+conceptmap.html

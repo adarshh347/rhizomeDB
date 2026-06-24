@@ -150,6 +150,9 @@ body{background:var(--bg);color:var(--ink);font:14px/1.5 ui-sans-serif,-apple-sy
 #side{width:300px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);padding:14px 16px;overflow:auto}
 #side h1{font-family:Georgia,serif;font-size:20px;margin:0 0 2px}
 #side .sub{color:var(--dim);font-size:12px;margin-bottom:12px}
+.lens{display:flex;gap:6px;margin:0 0 12px}
+.lens a{flex:1;text-align:center;font-size:12px;padding:5px 0;border:1px solid var(--line);border-radius:6px;color:var(--dim);text-decoration:none}
+.lens a.on{background:var(--panel2);color:var(--ink);border-color:var(--accent)}
 .sec{margin:14px 0 6px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}
 .f{display:flex;align-items:center;gap:7px;font-size:13px;padding:2px 0;cursor:pointer}
 .f input{accent-color:var(--accent)}
@@ -173,6 +176,7 @@ button.mini{background:var(--panel2);color:var(--ink);border:1px solid var(--lin
   <div id="side">
     <h1>Chunk map</h1>
     <div class="sub">the world of chunks — PCA of the corpus, coloured by character</div>
+    <div class="lens"><a href="conceptmap.html">concept</a><a href="chunkmap.html" class="on">similarity</a></div>
     <div id="stats"></div>
     <div class="sec">Levels</div><div id="flevels"></div>
     <div class="sec">Character</div><div id="fchars"></div>

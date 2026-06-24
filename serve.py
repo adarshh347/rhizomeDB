@@ -370,6 +370,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._html("<p>Chunk map not built. Run: "
                                   "<code>python -m tools.chunkmap</code></p>", 404)
             return self._html(cm.read_text(encoding="utf-8"))
+        if path in ("/conceptmap", "/conceptmap.html"):
+            cm = ROOT / "conceptmap.html"
+            if not cm.exists():
+                return self._html("<p>Concept map not built. Run: "
+                                  "<code>python -m rhizome.cli concepts &amp;&amp; "
+                                  "python -m rhizome.cli conceptmap</code></p>", 404)
+            return self._html(cm.read_text(encoding="utf-8"))
         if path == "/api/passage":
             cid = (q.get("id") or [""])[0]
             data = passage_with_context(cid)
