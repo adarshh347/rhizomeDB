@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RhizomeDB · Library</title>
+<link rel="stylesheet" href="/reader/reader.css">
+</head>
+<body>
+<div class="lib-wrap">
+  <div class="lib-head">
+    <div class="brand">RhizomeDB</div>
+    <div class="right">
+      <button class="tbtn" id="themeBtn" title="Toggle light / dark">☾</button>
+      <a class="tbtn" href="/">Explore ↗</a>
+    </div>
+  </div>
+
+  <h1 class="lib-title">Library</h1>
+  <p class="lib-sub">Read any book end to end. Select text to highlight it, comment in the margin,
+    or discuss a passage with the AI — every mark is saved and follows the passage wherever it
+    appears.</p>
+
+  <div class="shelf" id="shelf"><div class="empty">Loading…</div></div>
+</div>
+
+<script>
+const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function applyTheme(t){ document.body.classList.toggle('dark', t==='dark');
+  document.getElementById('themeBtn').textContent = t==='dark' ? '☀' : '☾'; }
+document.getElementById('themeBtn').onclick = () => {
+  const n = document.body.classList.contains('dark') ? 'light' : 'dark';
+  localStorage.setItem('rhz_theme', n); applyTheme(n); };
+applyTheme(localStorage.getItem('rhz_theme') || 'light');
+
+async function boot(){
+  const shelf = document.getElementById('shelf');
+  try{
+    const { books } = await (await fetch('/api/books')).json();
+    if(!books || !books.length){ shelf.innerHTML='<div class="empty">No books indexed yet — run <code>python -m rhizome.cli build</code>.</div>'; return; }
+    shelf.innerHTML = books.map(b => `
+      <a class="bookrow" href="/book?id=${encodeURIComponent(b.book_id)}">
+        <div style="flex:1;min-width:0">
+          <div class="bt">${esc(b.title)}</div>
+          <div class="ba">${esc(b.author)}${b.year?(' · '+b.year):''}</div>
+        </div>
+        <div class="bm"><b>${b.n_chunks.toLocaleString()}</b> passages<br><b>${b.n_annotations}</b> note${b.n_annotations===1?'':'s'}</div>
+        <span class="arrow">→</span>
+      </a>`).join('');
+  }catch(e){ shelf.innerHTML='<div class="empty">Could not reach the server.</div>'; }
+}
+boot();
+</script>
+</body>
+</html>

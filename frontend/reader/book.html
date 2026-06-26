@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RhizomeDB · Reader</title>
+<link rel="stylesheet" href="/reader/reader.css">
+</head>
+<body>
+<div class="progressbar"><span id="progfill"></span></div>
+
+<div class="r-bar">
+  <div class="barleft">
+    <a href="/library" class="tbtn" title="Back to the library">← Library</a>
+    <button class="tbtn active" id="tocToggle" title="Show or hide the contents">Contents</button>
+  </div>
+  <div class="grow">
+    <h1 id="title" class="serif">Loading…</h1>
+    <div class="ba" id="byline"></div>
+  </div>
+  <div class="barright">
+    <span class="prog" id="prog"></span>
+    <button class="tbtn active" id="railToggle" title="Show or hide the notes panel">Notes</button>
+    <button class="tbtn" id="fontDown" title="Smaller reading text">A−</button>
+    <button class="tbtn" id="fontUp" title="Larger reading text">A+</button>
+    <button class="tbtn" id="themeBtn" title="Toggle light / dark">☾</button>
+    <button class="tbtn primary" id="exploreBtn" title="Send the passage you're reading into the resonance engine">Explore ↗</button>
+  </div>
+</div>
+
+<div class="r-shell" id="shell">
+  <!-- table of contents -->
+  <nav class="r-toc">
+    <div class="eyebrow">Contents</div>
+    <div id="toc"></div>
+  </nav>
+
+  <div class="gutter gutter-toc" data-resize="toc" title="Drag to resize · double-click to reset"></div>
+
+  <!-- the reading column -->
+  <main class="r-main" id="main">
+    <div class="reading" id="reading"><div class="empty">…</div></div>
+  </main>
+
+  <div class="gutter gutter-rail" data-resize="rail" title="Drag to resize · double-click to reset"></div>
+
+  <!-- notes + discuss rail -->
+  <aside class="r-rail">
+    <div class="tabs">
+      <button class="tab active" data-pane="notes" id="tab-notes">Notes</button>
+      <button class="tab" data-pane="companion" id="tab-companion">Companion<span id="companionCount"></span></button>
+        <button class="tab" data-pane="chat" id="tab-chat">Discuss</button>
+    </div>
+
+    <div class="pane active" id="pane-notes">
+      <div class="railhint">Select text to <b>highlight</b> it or attach a comment. Hover a
+        paragraph and click <b>✎</b> in its margin to note the whole passage.</div>
+      <div id="annlist"><div class="empty">No notes or highlights yet.</div></div>
+    </div>
+
+    <div class="pane" id="pane-companion">
+      <div class="railhint">Spans you kept from the companion's answers — select text in any AI
+        reply to save it here, linked to the passage it grew from.</div>
+      <div id="companionlist"><div class="empty">Nothing yet.</div></div>
+    </div>
+
+    <div class="pane" id="pane-chat">
+      <div class="chat">
+        <div class="chatground" id="chatground">Scroll to a passage — the AI grounds its answers in what you're reading.</div>
+        <div class="msgs" id="msgs"></div>
+        <div class="chatrow">
+          <textarea id="chatin" rows="2" placeholder="Ask about the passage in view…"></textarea>
+          <button class="micbtn" data-target="#chatin" title="Dictate">🎙</button>
+          <button class="btn primary" id="send">Send</button>
+        </div>
+        <div class="dim" id="chathint" style="font-size:11px"></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="seltool" id="seltool">
+  <button class="btn primary" id="hl">Highlight</button>
+  <button class="btn ghost" id="hlc">Comment</button>
+</div>
+
+<!-- comment composer -->
+<div class="modal-back" id="modalBack">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <span class="mt" id="modalTitle">Add a comment</span>
+      <button class="x" id="modalClose" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-quote" id="modalQuote" style="display:none"></div>
+    <textarea id="modalText" placeholder="A thought, a question, a connection to chase…"></textarea>
+    <div class="modal-foot">
+      <span class="modal-hint"><kbd>⌘</kbd>+<kbd>↵</kbd> to save · <kbd>Esc</kbd> to cancel</span>
+      <div class="modal-actions">
+        <button class="micbtn" data-target="#modalText" title="Dictate">🎙</button>
+        <button class="btn ghost" id="modalCancel">Cancel</button>
+        <button class="btn primary" id="modalSave">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- per-comment discussion drawer -->
+<div class="drawer-back" id="threadBack">
+  <aside class="drawer" id="thread" role="dialog" aria-modal="true">
+    <div class="drawer-head">
+      <div style="min-width:0">
+        <div class="eyebrow">Discuss this note</div>
+        <div class="drawer-src" id="threadSrc"></div>
+        <a class="disc" id="threadDeepen" target="_blank" rel="noopener" style="font-size:12.5px">Open in Plateau ↗</a>
+      </div>
+      <button class="x" id="threadClose" aria-label="Close">✕</button>
+    </div>
+    <button class="note-toggle" id="threadNoteToggle">
+      <span class="ncar" id="threadNoteCaret">▾</span>
+      <span id="threadNoteLabel">Hide note</span>
+      <span class="npv" id="threadNotePreview"></span>
+    </button>
+    <div class="thread-note" id="threadNote"></div>
+    <div class="msgs" id="threadMsgs"></div>
+    <div class="chatrow">
+      <textarea id="threadIn" rows="2" placeholder="Continue the conversation about this passage…"></textarea>
+      <button class="micbtn" data-target="#threadIn" title="Dictate">🎙</button>
+      <button class="btn primary" id="threadSend">Send</button>
+    </div>
+    <div class="dim" id="threadHint" style="font-size:11px"></div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/reader/voice.js"></script>
+<script src="/reader/book.js"></script>
+</body>
+</html>
