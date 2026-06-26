@@ -148,6 +148,8 @@ SYNTH_LONG_MAX_TOKENS = 2800     # long answer output cap (was 6000)
 SYNTH_SHORT_MAX_TOKENS = 1600    # short answer output cap (was 2200)
 JUDGE_MAX_TOKENS = 2600          # verdict output cap (was 4000)
 BRAINSTORM_MAX_TOKENS = 2000     # brainstorm output cap (was 2600)
+CHAT_MAX_TOKENS = 2400           # Discuss companion reply cap — room to finish the thought
+#                                  (note: Gemini 2.5 "thinking" is billed against this, so keep headroom)
 
 # LLM (the judging + synthesis brain).
 LLM_MODEL = "claude-opus-4-8"

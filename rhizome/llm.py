@@ -492,8 +492,9 @@ the text in front of you and the philosophical tradition it belongs to. When \
 the reader points at a line, work with that line. Be substantive — explain, \
 draw connections, push back, open questions — but stay grounded in the passage; \
 do not invent citations. Speak plainly, in flowing prose (no bullet lists \
-unless asked). Keep replies focused (~150-350 words) unless the reader asks for \
-more."""
+unless asked). Aim for ~200-400 words (more only if the reader explicitly asks), \
+and ALWAYS bring the reply to a clean close — finish your thought and end on a \
+complete sentence; never trail off mid-sentence or stop in the middle of a list."""
 
 
 def chat(context_text: str, history: list[dict], message: str, client: LLMClient,
@@ -509,7 +510,7 @@ def chat(context_text: str, history: list[dict], message: str, client: LLMClient
     if convo:
         user += f"CONVERSATION SO FAR:\n{convo}\n\n"
     user += f"Reader: {message}\n\nReply as the companion."
-    return client.complete(CHAT_SYSTEM, user, max_tokens=1400,
+    return client.complete(CHAT_SYSTEM, user, max_tokens=config.CHAT_MAX_TOKENS,
                            temperature=0.8, json_mode=False).strip()
 
 
