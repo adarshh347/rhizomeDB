@@ -514,6 +514,56 @@ def chat(context_text: str, history: list[dict], message: str, client: LLMClient
                            temperature=0.8, json_mode=False).strip()
 
 
+# --- Plateau: a study map for a single passage (concepts + edges + prompts) ---
+STUDY_SYSTEM = """\
+You are the study layer of RhizomeDB ("the Plateau"). Given ONE passage from a \
+philosophy text, produce a compact study map, grounded strictly in the passage \
+— do not invent material it does not contain.
+
+1. concepts — the 5-9 core concepts the passage actually works with. For each: a \
+short label (1-3 words, the tradition's own term where it has one) and a \
+one-sentence gloss of how THIS passage uses it.
+2. edges — the relations between those concepts as the passage stages them. \
+Reference concepts by their index in the concepts list; name the relation in \
+1-4 words (e.g. "grounds", "opposed to", "unfolds into", "presupposes"). Only \
+edges the passage actually supports; 4-10 of them.
+3. follow_ups — 5 questions, each opening a different line of inquiry from this \
+passage (not restatements).
+4. angles — 3-5 brainstorming angles: each a short title and a 1-2 sentence \
+interpretive provocation that opens a way into the passage.
+
+Return ONLY a JSON object of this exact shape (no prose, no code fences):
+{"concepts":[{"label":"<...>","gloss":"<...>"}],
+ "edges":[{"a":<int>,"b":<int>,"relation":"<...>"}],
+ "follow_ups":["<...>"],
+ "angles":[{"title":"<...>","thought":"<...>"}]}"""
+
+
+def study_passage(text: str, client: LLMClient) -> dict:
+    """One call → the Plateau study map for a single passage: a concept graph
+    (nodes + named edges), follow-up questions, and brainstorming angles."""
+    user = (f"PASSAGE:\n{_clip(text)}\n\nReturn the JSON study map.")
+    raw = client.complete(STUDY_SYSTEM, user, max_tokens=1600,
+                          temperature=0.6, json_mode=True)
+    data = _strip_json(raw) or {}
+    concepts = [{"label": str(c.get("label", "")).strip(),
+                 "gloss": str(c.get("gloss", "")).strip()}
+                for c in (data.get("concepts") or []) if str(c.get("label", "")).strip()][:9]
+    n = len(concepts)
+    edges = []
+    for e in (data.get("edges") or []):
+        try:
+            a, b = int(e["a"]), int(e["b"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if 0 <= a < n and 0 <= b < n and a != b:
+            edges.append({"a": a, "b": b, "relation": str(e.get("relation", "")).strip()})
+    follow_ups = [str(q).strip() for q in (data.get("follow_ups") or []) if str(q).strip()][:6]
+    angles = [{"title": str(a.get("title", "")).strip(), "thought": str(a.get("thought", "")).strip()}
+              for a in (data.get("angles") or []) if str(a.get("title", "")).strip()][:5]
+    return {"concepts": concepts, "edges": edges, "follow_ups": follow_ups, "angles": angles}
+
+
 def brainstorm(seed_text: str, passages: list[dict], client: LLMClient) -> Brainstorm:
     """One call → line of interpretations + comparisons + follow-ups, all
     grounded in the retrieved passages. Cheaper than three separate calls."""
