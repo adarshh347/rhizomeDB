@@ -19,12 +19,13 @@ from urllib.parse import urlparse, parse_qs
 import numpy as np
 
 from rhizome import (config, chunk as chunk_mod, embed as embed_mod,
-                     store as store_mod, llm, workspace)
+                     store as store_mod, llm, workspace, rhythm)
 from rhizome.catalog import load_catalog
 
 ROOT = pathlib.Path(__file__).resolve().parent
 INDEX_HTML = ROOT / "frontend" / "index.html"
 READER_HTML = ROOT / "frontend" / "reader.html"
+READER_DIR = ROOT / "frontend" / "reader"   # the whole-book reader app (library.html, book.html, assets)
 
 _ENGINE = None
 
@@ -145,6 +146,193 @@ def passage_with_context(chunk_id: str):
         "title": c.get("title"), "heading": c.get("heading"), "page": c.get("page"),
         "text": c["text"],
         "prev": brief(i - 1), "next": brief(i + 1),
+    }
+
+
+# ---- whole-book reader ------------------------------------------------------
+def _ann_counts_by_book():
+    """How many annotations attach to each book (target == '<book_id>#<n>')."""
+    counts = {}
+    for a in workspace.list_annotations(None):
+        t = a.get("target", "")
+        bid = t.split("#", 1)[0] if "#" in t else None
+        if bid:
+            counts[bid] = counts.get(bid, 0) + 1
+    return counts
+
+
+def books_index():
+    """Every book in the corpus with its reading-relevant stats, for the library
+    landing page. Order: most chunks first (the meatier books up top)."""
+    eng = get_engine()
+    cat = load_catalog()
+    per_book = {}
+    for c in eng.store.chunks:
+        b = c["book_id"]
+        per_book[b] = per_book.get(b, 0) + 1
+    anns = _ann_counts_by_book()
+    out = []
+    for bid, n in per_book.items():
+        meta = cat.get(bid, {})
+        out.append({"book_id": bid, "title": meta.get("title", bid),
+                    "author": meta.get("author", "Unknown"),
+                    "year": meta.get("year"), "n_chunks": n,
+                    "n_annotations": anns.get(bid, 0)})
+    out.sort(key=lambda b: b["n_chunks"], reverse=True)
+    return {"books": out}
+
+
+def book_payload(book_id: str):
+    """A whole book as its ordered sequence of chunks, plus a heading-based table
+    of contents. Returns None for an unknown book. The chunk ids are the SAME
+    targets the annotation/chat APIs already use, so highlights attach per chunk
+    and survive across the reader, the explore page, and saved sessions."""
+    eng = get_engine()
+    cat = load_catalog()
+    chunks = [c for c in eng.store.chunks if c["book_id"] == book_id]
+    if not chunks:
+        return None
+    meta = cat.get(book_id, {})
+    paras = []
+    for c in chunks:
+        h = (c.get("heading") or "").strip()
+        paras.append({"id": c["id"], "heading": h or None, "page": c.get("page"),
+                      "character": c.get("character"),
+                      "character_desc": c.get("character_desc"),
+                      "text": c["text"]})
+    return {"book_id": book_id, "title": meta.get("title", book_id),
+            "author": meta.get("author", "Unknown"), "year": meta.get("year"),
+            "n_chunks": len(chunks), "toc": _build_toc(chunks), "paragraphs": paras}
+
+
+def _build_toc(chunks):
+    """A navigable contents rail for any book. Books differ: some tag every chunk
+    with a section heading, some carry only page numbers, the dictionary has
+    neither — so fall back heading → page-stride → passage-stride, and always
+    return something clickable."""
+    have_head = sum(1 for c in chunks if (c.get("heading") or "").strip())
+    have_page = sum(1 for c in chunks if c.get("page") is not None)
+    toc, last = [], None
+    if have_head >= 3:
+        for c in chunks:
+            h = (c.get("heading") or "").strip()
+            if h and h != last:
+                toc.append({"heading": h, "id": c["id"], "page": c.get("page")})
+                last = h
+        if len(toc) <= 300:
+            return toc
+        # too granular (heading ~= per chunk): thin to ~120 evenly-spaced marks
+        step = max(1, len(toc) // 120)
+        return toc[::step]
+    if have_page >= 3:
+        for c in chunks:
+            p = c.get("page")
+            if p is not None and p != last and (last is None or p - last >= 5):
+                toc.append({"heading": f"Page {p}", "id": c["id"], "page": p})
+                last = p
+        return toc
+    # no structure at all — milestone every ~25 passages
+    return [{"heading": f"Passage {i+1}", "id": c["id"], "page": None}
+            for i, c in enumerate(chunks) if i % 25 == 0]
+
+
+_WORD_COUNTS = {}
+
+
+def book_word_counts(book_id: str) -> dict:
+    """Per-passage word counts for a book (cached) — needed to normalise dwell
+    into ms/word so long passages aren't mistaken for slow reading."""
+    if book_id not in _WORD_COUNTS:
+        eng = get_engine()
+        _WORD_COUNTS[book_id] = {c["id"]: len(c["text"].split())
+                                 for c in eng.store.chunks if c["book_id"] == book_id}
+    return _WORD_COUNTS[book_id]
+
+
+def book_annotations(book_id: str):
+    """All annotations across every chunk of one book, for the reader's notes
+    rail (kept separate from the per-target /api/annotations the panel posts to)."""
+    items = [a for a in workspace.list_annotations(None)
+             if a.get("target", "").split("#", 1)[0] == book_id]
+    items.sort(key=lambda a: (a.get("target", ""), a.get("created", "")))
+    return {"items": items}
+
+
+# ---- Plateau: a deep-study page for a single passage ------------------------
+import re as _re
+
+PLATEAU_CACHE_PATH = config.INDEX_DIR / "cache_plateau.json"
+
+
+def _heuristic_graph(text: str):
+    """A concept graph without an LLM: salient phrases as nodes, sentence
+    co-occurrence as edges. The fallback so the Plateau is always populated."""
+    from collections import Counter
+    from rhizome import concepts as C
+    grams = Counter(C._candidates(C._tokens(text)))
+    ranked = [g for g, _ in grams.most_common(40)]
+    picked = []
+    for g in sorted(ranked, key=lambda g: (-(" " in g), -grams[g])):  # prefer multiword, frequent
+        if all(g not in p and p not in g for p in picked):
+            picked.append(g)
+        if len(picked) >= 8:
+            break
+    concepts = [{"label": g, "gloss": ""} for g in picked]
+    idx = {g: i for i, g in enumerate(picked)}
+    pair = Counter()
+    for s in _re.split(r"(?<=[.!?])\s+", text):
+        sl = s.lower()
+        present = [g for g in picked if g in sl]
+        for a in range(len(present)):
+            for b in range(a + 1, len(present)):
+                pair[tuple(sorted((idx[present[a]], idx[present[b]])))] += 1
+    edges = [{"a": a, "b": b, "relation": "co-occurs"} for (a, b), _ in pair.most_common(12)]
+    return {"concepts": concepts, "edges": edges, "follow_ups": [], "angles": []}
+
+
+def plateau_payload(chunk_id: str, refresh: bool = False):
+    """Everything the Plateau page needs for one passage: the passage + nearby
+    context, and an LLM study map (concept constellation + follow-ups + angles),
+    cached by content hash so re-opening a passage costs no tokens."""
+    eng = get_engine()
+    store = eng.store
+    i = store.by_id.get(chunk_id)
+    if i is None:
+        return None
+    c = store.chunks[i]
+
+    def neighbour(j):
+        if 0 <= j < len(store.chunks) and store.chunks[j]["book_id"] == c["book_id"]:
+            n = store.chunks[j]
+            return {"id": n["id"], "page": n.get("page"), "text": n["text"]}
+        return None
+
+    from rhizome import enrich
+    cache = enrich._load_cache(PLATEAU_CACHE_PATH)
+    h = enrich._hash(c["text"])
+    study, source = cache.get(h), "cache"
+    if study is None or refresh:
+        if eng.client is not None:
+            try:
+                study = llm.study_passage(c["text"], eng.client)
+                source = "llm"
+                cache[h] = study
+                enrich._save_cache(PLATEAU_CACHE_PATH, cache)
+            except Exception as e:
+                study = _heuristic_graph(c["text"])
+                source = "heuristic" if not llm._is_rate_limit(e) else "heuristic-quota"
+        else:
+            study, source = _heuristic_graph(c["text"]), "heuristic"
+    return {
+        "chunk": {"id": c["id"], "book_id": c["book_id"], "author": c.get("author"),
+                  "title": c.get("title"), "heading": c.get("heading"),
+                  "page": c.get("page"), "character": c.get("character"),
+                  "character_desc": c.get("character_desc"), "text": c["text"]},
+        "context": {"prev": neighbour(i - 1), "next": neighbour(i + 1)},
+        "graph": {"concepts": study.get("concepts", []), "edges": study.get("edges", [])},
+        "follow_ups": study.get("follow_ups", []),
+        "angles": study.get("angles", []),
+        "source": source,
     }
 
 
@@ -357,6 +545,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    _CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+               ".js": "application/javascript; charset=utf-8",
+               ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml"}
+
+    def _reader_file(self, rel: str):
+        """Serve a static asset from frontend/reader/ (the reader app). Path is
+        sanitized so it can't escape the directory."""
+        rel = rel.strip("/")
+        target = (READER_DIR / rel).resolve()
+        if not str(target).startswith(str(READER_DIR.resolve())) or not target.is_file():
+            return self._json({"error": "not found"}, 404)
+        body = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", self._CTYPES.get(target.suffix, "application/octet-stream"))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         path = urlparse(self.path).path
         q = parse_qs(urlparse(self.path).query)
@@ -364,6 +571,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._html(INDEX_HTML.read_text(encoding="utf-8"))
         if path in ("/reader", "/reader.html"):
             return self._html(READER_HTML.read_text(encoding="utf-8"))
+        # --- whole-book reader app (frontend/reader/) ---
+        if path in ("/library", "/library.html"):
+            return self._reader_file("library.html")
+        if path in ("/book", "/book.html"):
+            return self._reader_file("book.html")
+        if path in ("/plateau", "/plateau.html"):
+            return self._reader_file("plateau.html")
+        if path.startswith("/reader/"):
+            return self._reader_file(path[len("/reader/"):])
         if path in ("/chunkmap", "/chunkmap.html"):
             cm = ROOT / "build" / "chunkmap.html"
             if not cm.exists():
@@ -381,8 +597,37 @@ class Handler(BaseHTTPRequestHandler):
             cid = (q.get("id") or [""])[0]
             data = passage_with_context(cid)
             return self._json(data or {"error": "unknown chunk id"}, 200 if data else 404)
+        if path == "/api/books":
+            return self._json(books_index())
+        if path == "/api/book":
+            data = book_payload((q.get("id") or [""])[0])
+            return self._json(data or {"error": "unknown book id"}, 200 if data else 404)
+        if path == "/api/book_annotations":
+            return self._json(book_annotations((q.get("book") or [""])[0]))
+        if path == "/api/plateau":
+            data = plateau_payload((q.get("chunk") or [""])[0], refresh=bool(q.get("refresh")))
+            return self._json(data or {"error": "unknown chunk id"}, 200 if data else 404)
         if path == "/api/annotations":
-            return self._json({"items": workspace.list_annotations((q.get("target") or [None])[0])})
+            return self._json({"items": workspace.list_annotations(
+                (q.get("target") or [None])[0],
+                source=(q.get("source") or [None])[0],
+                passage_id=(q.get("passage_id") or [None])[0])})
+        if path == "/api/companion-notes":
+            return self._json({"items": workspace.list_companion_notes(
+                (q.get("passage_id") or [None])[0])})
+        if path == "/api/rhythm":
+            book = (q.get("book") or [""])[0]
+            return self._json(rhythm.compute(book, book_word_counts(book)) if book
+                              else {"error": "book required"}, 200 if book else 400)
+        if path == "/api/candidates":
+            book = (q.get("book") or [""])[0]
+            sess = (q.get("session") or [None])[0]
+            return self._json(rhythm.candidates(book, book_word_counts(book), sess) if book
+                              else {"error": "book required"}, 200 if book else 400)
+        if path == "/api/behavior/logged":
+            book = (q.get("book") or [""])[0]
+            return self._json(rhythm.logged_summary(book) if book else {"error": "book required"},
+                              200 if book else 400)
         if path == "/api/chat":
             return self._json({"messages": workspace.load_chat((q.get("target") or [""])[0])})
         if path == "/api/sessions":
@@ -431,10 +676,17 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_json()
         try:
             if path == "/api/annotations":
+                # AI annotations carry a passage_id; default the legacy target to
+                # it so companion notes group with the passage they grew from.
+                target = body.get("target", "") or body.get("passage_id", "")
                 rec = workspace.add_annotation(
-                    body.get("target", ""), body.get("kind", "note"),
+                    target, body.get("kind", "note"),
                     quote=body.get("quote", ""), note=body.get("note", ""),
-                    color=body.get("color", "amber"))
+                    color=body.get("color", "amber"),
+                    source=body.get("source", "reader"),
+                    passage_id=body.get("passage_id", ""),
+                    msg_id=body.get("msg_id", ""),
+                    chat_target=body.get("chat_target", ""))
                 return self._json({"ok": True, "annotation": rec})
             if path == "/api/annotations/delete":
                 ok = workspace.delete_annotation(body.get("id", ""))
@@ -447,9 +699,36 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/session/delete":
                 ok = workspace.delete_session(body.get("id", ""))
                 return self._json({"ok": ok})
+            if path == "/api/behavior":
+                n = rhythm.append_events(body.get("book", ""), body.get("session", ""),
+                                         body.get("events", []) or [])
+                return self._json({"ok": True, "stored": n})
+            if path == "/api/behavior/clear":
+                ok = rhythm.clear_book(body.get("book", ""))
+                return self._json({"ok": ok})
+            if path == "/api/candidates/confirm":
+                return self._confirm_candidate(body)
         except Exception as e:
             return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
         return self._json({"error": "not found"}, 404)
+
+    def _confirm_candidate(self, body):
+        """Keep/Dismiss a candidate spark (R6b). Keep creates a real annotation
+        (source:'spark') the reader can build on, plus a positive label; Dismiss
+        records a negative label. Both feed the future personal model (R5)."""
+        book = body.get("book", "")
+        pid = body.get("passage_id", "")
+        action = body.get("action", "")
+        evidence = body.get("evidence", "")
+        if not pid or action not in ("keep", "dismiss"):
+            return self._json({"error": "passage_id and action (keep|dismiss) required"}, 400)
+        annotation = None
+        if action == "keep":
+            annotation = workspace.add_annotation(
+                pid, "note", note=f"Reading rhythm drew you here — {evidence}",
+                source="spark", passage_id=pid)
+        rhythm.add_label(book, pid, 1 if action == "keep" else 0, evidence)
+        return self._json({"ok": True, "annotation": annotation})
 
     def _chat(self, body):
         target = body.get("target", "")
@@ -464,9 +743,9 @@ class Handler(BaseHTTPRequestHandler):
         history = workspace.load_chat(target)
         workspace.append_chat(target, "user", message)
         reply = llm.chat(context, history, message, eng.client, source_label=label)
-        workspace.append_chat(target, "assistant", reply)
+        rec = workspace.append_chat(target, "assistant", reply)
         usage = dict(getattr(eng.client, "last_usage", {}) or {})
-        return self._json({"reply": reply, "usage": usage,
+        return self._json({"reply": reply, "msg_id": rec["msg_id"], "usage": usage,
                            "cumulative": getattr(eng.client, "total_usage", {}).get("total", 0)})
 
     def _compare(self, q):
