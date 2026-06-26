@@ -22,11 +22,14 @@ returns the geometry-only band or a clear message.
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
 from . import config, state as state_mod, notes as notes_mod, graph as graph_mod
 
 _ENGINE = None
 _ENGINE_LOCK = threading.Lock()
+_CLIENT = None
+_CLIENT_LOCK = threading.Lock()
 VENDOR_DIR = config.ROOT / "frontend" / "vendor"   # local React/Babel/vis (no CDN)
 
 
@@ -38,6 +41,21 @@ def _engine():
             from .engine import Engine
             _ENGINE = Engine()
         return _ENGINE
+
+
+def _client():
+    """Lazily build one shared LLM client (None if no provider key is set)."""
+    global _CLIENT
+    with _CLIENT_LOCK:
+        if _CLIENT is None:
+            from . import llm
+            _CLIENT = llm.get_client() or False   # False = resolved-but-absent
+        return _CLIENT or None
+
+
+def _qs(path: str) -> dict:
+    """First value of each query param, e.g. /api/section?book=x&idx=3."""
+    return {k: v[0] for k, v in parse_qs(urlparse(path).query).items()}
 
 
 def run_explore(body: dict) -> dict:
@@ -100,6 +118,96 @@ def run_ask(body: dict) -> dict:
                 "hint": "normal RAG needs fastembed (to embed the question) + an LLM key (to answer)."}
 
 
+# --- reader (/read): book sections, conceptual descriptions, notes, brainstorm --
+def run_book(qs: dict) -> dict:
+    """The section nav for a book: per-section title/heading/words + described?."""
+    from . import sections
+    book = qs.get("id") or qs.get("book") or "what-is-called-thinking"
+    try:
+        return sections.book_overview(book)
+    except SystemExit as e:
+        return {"error": str(e),
+                "hint": f"build it first:  python -m rhizome.cli sections --book {book}"}
+
+
+def run_section(qs: dict) -> dict:
+    """One section fully resolved: original text + conceptual description +
+    cached brainstorm + the section's annotations (shared across all panels)."""
+    from . import sections, workspace
+    book = qs.get("book") or "what-is-called-thinking"
+    try:
+        idx = int(qs.get("idx") or 0)
+        sec = sections.get_section(book, idx)
+    except SystemExit as e:
+        return {"error": str(e)}
+    except (ValueError, TypeError):
+        return {"error": "bad section index"}
+    sec["annotations"] = workspace.list_annotations(sec["id"])
+    return sec
+
+
+def run_describe(body: dict) -> dict:
+    """Generate (Gemini) the conceptual description for one section, on demand."""
+    from . import sections, usage
+    book = body.get("book") or "what-is-called-thinking"
+    try:
+        idx = int(body.get("idx"))
+    except (ValueError, TypeError):
+        return {"error": "bad section index"}
+    cl = _client()
+    if cl is None:
+        return {"error": "No LLM key set.",
+                "hint": "set GEMINI_API_KEY (or ANTHROPIC_API_KEY) to generate descriptions."}
+    try:
+        res = sections.describe_section(book, idx, cl, force=bool(body.get("force")))
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    usage.record_report(res.get("usage"))
+    return res
+
+
+def run_brainstorm(body: dict) -> dict:
+    """Generate (Gemini) the AI-brainstorm panel for one section, on demand."""
+    from . import sections, usage
+    book = body.get("book") or "what-is-called-thinking"
+    try:
+        idx = int(body.get("idx"))
+    except (ValueError, TypeError):
+        return {"error": "bad section index"}
+    cl = _client()
+    if cl is None:
+        return {"error": "No LLM key set.",
+                "hint": "set GEMINI_API_KEY (or ANTHROPIC_API_KEY) to brainstorm."}
+    try:
+        res = sections.brainstorm_section(book, idx, cl, force=bool(body.get("force")))
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    usage.record_report(res.get("usage"))
+    return res
+
+
+def run_annotations_get(qs: dict) -> dict:
+    from . import workspace
+    return {"annotations": workspace.list_annotations(qs.get("target") or None)}
+
+
+def run_annotation_add(body: dict) -> dict:
+    from . import workspace
+    target = (body.get("target") or "").strip()
+    if not target:
+        return {"error": "annotation needs a target"}
+    rec = workspace.add_annotation(
+        target, body.get("kind") or "note", quote=body.get("quote") or "",
+        note=body.get("note") or "", color=body.get("color") or "amber",
+        source=body.get("source") or "")
+    return {"ok": True, "annotation": rec}
+
+
+def run_annotation_delete(body: dict) -> dict:
+    from . import workspace
+    return {"ok": workspace.delete_annotation(body.get("id") or "")}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
@@ -119,12 +227,21 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        route = urlparse(self.path).path
         if self.path == "/" or self.path.startswith("/index"):
             self._send(200, SPA, "text/html; charset=utf-8")
         elif self.path == "/api/state":
             self._send(200, json.dumps(state_mod.snapshot()))
         elif self.path == "/ask" or self.path.startswith("/ask?"):
             self._send(200, ASK_SPA, "text/html; charset=utf-8")
+        elif route == "/read":
+            self._send(200, READER_SPA, "text/html; charset=utf-8")
+        elif route == "/api/book":
+            self._send(200, json.dumps(run_book(_qs(self.path))))
+        elif route == "/api/section":
+            self._send(200, json.dumps(run_section(_qs(self.path))))
+        elif route == "/api/annotations":
+            self._send(200, json.dumps(run_annotations_get(_qs(self.path))))
         elif self.path.startswith("/vendor/"):
             self._serve_vendor(self.path)
         else:
@@ -147,6 +264,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(run_explore(self._json_body())))
         elif self.path == "/api/ask":
             self._send(200, json.dumps(run_ask(self._json_body())))
+        elif self.path == "/api/section/describe":
+            self._send(200, json.dumps(run_describe(self._json_body())))
+        elif self.path == "/api/brainstorm":
+            self._send(200, json.dumps(run_brainstorm(self._json_body())))
+        elif self.path == "/api/annotations":
+            self._send(200, json.dumps(run_annotation_add(self._json_body())))
+        elif self.path == "/api/annotations/delete":
+            self._send(200, json.dumps(run_annotation_delete(self._json_body())))
         else:
             self._send(404, json.dumps({"error": "not found"}))
 
@@ -158,6 +283,10 @@ SPA = r"""<!doctype html><html><head><meta charset="utf-8"><title>RhizomeDB · P
 <script src="/vendor/react.production.min.js"></script>
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/vendor/babel.min.js"></script>
+<script>/* This Babel build defaults the react preset to the AUTOMATIC JSX runtime,
+which emits `import ... from "react/jsx-runtime"` — fatal inside a classic
+<script>. Register a classic-runtime variant and target it via data-presets. */
+Babel.registerPreset("react-classic",{presets:[[Babel.availablePresets.react,{runtime:"classic"}]]});</script>
 <script src="/vendor/vis-network.min.js"></script>
 <style>
 :root{--bg:#F4F0E8;--ink:#2B2722;--panel:#FBF8F2;--line:#E5DCCB;--accent:#C4533A;--muted:#857A6B;}
@@ -191,7 +320,7 @@ textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:8px;f
 .usage b{color:var(--ink)}.upart{display:inline-block;background:#EBE4D6;border-radius:12px;padding:1px 8px;margin:4px 6px 0 0}
 .sec{margin-top:20px}
 </style></head><body><div id="root"></div>
-<script type="text/babel" data-presets="react">
+<script type="text/babel" data-presets="react-classic">
 const {useState,useEffect,useRef} = React;
 const CC={decide:"#7a5ca8",read:"#C4533A",explore:"#4F6D8C",do:"#6B8F71",chase:"#B07D48"};
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
@@ -257,6 +386,7 @@ function App(){const [d,setD]=useState(null);
   if(!d)return <div className="wrap">loading…</div>;
   return <div className="wrap"><h1>RhizomeDB · Panel</h1>
     <div className="sub"><span className="live"></span>live · refreshed {d.when} · one step at a time
+      &nbsp;·&nbsp;<a href="/read" style={{color:"#C4533A"}}>read a book (parallel reader) →</a>
       &nbsp;·&nbsp;<a href="/ask" style={{color:"#C4533A"}}>ask (baseline RAG) →</a></div>
     <Strip s={d.status}/>
     <div className="cols"><div><Deck deck={d.deck}/><Books books={d.books}/></div>
@@ -270,6 +400,10 @@ ASK_SPA = r"""<!doctype html><html><head><meta charset="utf-8"><title>RhizomeDB 
 <script src="/vendor/react.production.min.js"></script>
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/vendor/babel.min.js"></script>
+<script>/* This Babel build defaults the react preset to the AUTOMATIC JSX runtime,
+which emits `import ... from "react/jsx-runtime"` — fatal inside a classic
+<script>. Register a classic-runtime variant and target it via data-presets. */
+Babel.registerPreset("react-classic",{presets:[[Babel.availablePresets.react,{runtime:"classic"}]]});</script>
 <style>
 :root{--bg:#F4F0E8;--ink:#2B2722;--panel:#FBF8F2;--line:#E5DCCB;--accent:#C4533A;--muted:#857A6B;}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
@@ -296,7 +430,7 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute
 .txt{font-size:13px;color:#4a443c;max-height:150px;overflow:auto}
 .meta{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);background:#F1EADD;border-radius:8px;padding:10px;margin-top:14px}
 </style></head><body><div id="root"></div>
-<script type="text/babel" data-presets="react">
+<script type="text/babel" data-presets="react-classic">
 const {useState}=React;
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 function App(){
@@ -330,6 +464,240 @@ function App(){
         <div className="txt">{s.text}</div></div>)}
     </div>}
   </div>;}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script></body></html>"""
+
+
+READER_SPA = r"""<!doctype html><html><head><meta charset="utf-8"><title>RhizomeDB · Read</title>
+<script src="/vendor/react.production.min.js"></script>
+<script src="/vendor/react-dom.production.min.js"></script>
+<script src="/vendor/babel.min.js"></script>
+<script>/* This Babel build defaults the react preset to the AUTOMATIC JSX runtime,
+which emits `import ... from "react/jsx-runtime"` — fatal inside a classic
+<script>. Register a classic-runtime variant and target it via data-presets. */
+Babel.registerPreset("react-classic",{presets:[[Babel.availablePresets.react,{runtime:"classic"}]]});</script>
+<style>
+:root{--bg:#F4F0E8;--ink:#2B2722;--panel:#FBF8F2;--line:#E5DCCB;--accent:#C4533A;--muted:#857A6B;}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+ font-family:-apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;line-height:1.5}
+a{color:var(--accent)}
+.rwrap{max-width:1560px;margin:0 auto;padding:20px 20px 70px}
+.top{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:14px}
+h1{font-family:Georgia,serif;font-size:23px;margin:0}
+.byline{color:var(--muted);font-size:12.5px;margin-top:3px}
+.navc{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.navc button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+.navc button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.navc button:disabled{opacity:.4;cursor:default}
+select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;max-width:340px;background:#fff}
+.prog{font-size:12px;color:var(--muted);font-family:ui-monospace,monospace}
+.usage{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted);background:#F1EADD;border-radius:8px;padding:6px 10px;margin-bottom:12px}
+.usage b{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
+@media(max-width:1240px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;max-height:76vh;overflow:auto}
+.panel.notes{background:#FFFDF8}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;position:sticky;top:-14px;background:inherit;padding-top:2px}
+.ph h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0}
+.cnt{font-size:11px;background:#EBE4D6;border-radius:20px;padding:1px 8px;color:#6c6358}
+.mini{border:1px solid var(--line);background:#fff;border-radius:7px;padding:3px 8px;font-size:11px;cursor:pointer;color:var(--muted)}
+.mini:hover{border-color:var(--accent);color:var(--accent)}.redo{margin-top:10px}
+.pmeta{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-bottom:8px}
+.passage p{font-size:13.5px;line-height:1.62;margin:0 0 10px;color:#3a352e}
+.empty{font-size:13px;color:var(--muted);text-align:center;padding:18px 6px}
+.empty button{margin-top:8px;border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:9px;padding:7px 14px;font-size:13px;cursor:pointer}
+.empty button:disabled{opacity:.5;cursor:default}
+h4{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:13px 0 6px}
+.ctitle{font-family:Georgia,serif;font-size:16px;margin-bottom:6px}
+.csum{font-size:13.5px;line-height:1.55;color:#3a352e;margin:0}
+.cc{font-size:13px;line-height:1.5;padding:3px 0;border-bottom:1px dashed var(--line)}
+.disc{margin:0;padding-left:18px;font-size:13px;line-height:1.5}.disc li{margin-bottom:3px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:3px 10px;color:#5a5249}
+.composer{border:1px solid var(--line);background:#fff;border-radius:11px;padding:10px;margin-bottom:12px}
+.composer textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px;font:inherit;font-size:13px;resize:vertical;margin:6px 0}
+.composer>button{border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer}
+.srow{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.seg{border:1px solid var(--line);background:#fff;border-radius:14px;padding:2px 9px;font-size:11px;cursor:pointer;color:var(--muted)}
+.seg.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.quote{font-size:12.5px;font-style:italic;color:#6c6358;border-left:2px solid var(--accent);padding-left:8px;margin-bottom:6px}
+.quote.sel{background:#FBF3EC;border-radius:0 6px 6px 0;padding:5px 8px}
+.note{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px;margin-bottom:8px}
+.ntext{font-size:13px;line-height:1.5;color:#3a352e}
+.nmeta{display:flex;align-items:center;gap:8px;margin-top:5px;font-size:11px;color:var(--muted)}
+.tag{border-radius:14px;padding:1px 8px;font-size:10.5px}
+.t-original{background:#E3EAF1;color:#3d5a78}.t-concept{background:#E7E0F0;color:#5b4a82}
+.t-brainstorm{background:#DCE8DC;color:#3f6b46}.t-note{background:#F0E2D8;color:#9a5a3c}
+.when{font-family:ui-monospace,monospace}
+.x{border:none;background:none;color:var(--muted);cursor:pointer;font-size:11px;margin-left:auto;padding:0 2px}
+.x:hover{color:var(--accent)}
+.interp{margin:0;padding-left:18px;font-size:13px;line-height:1.55}.interp li{margin-bottom:6px}
+.pidx{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
+.cmp{font-size:13px;line-height:1.5;border-left:2px solid var(--line);padding-left:9px;margin-bottom:8px}
+.pnotes{margin-top:12px;border-top:1px dashed var(--line);padding-top:8px}
+.pnh{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:5px}
+.pn{font-size:12px;line-height:1.45;color:#4a443c;display:flex;gap:4px;align-items:baseline;margin-bottom:4px}
+.pq{font-style:italic;color:#6c6358}
+.hint{color:var(--muted);font-size:13px;margin-top:8px}
+</style></head><body><div id="root"></div>
+<script type="text/babel" data-presets="react-classic">
+const {useState,useEffect,useRef,useCallback}=React;
+const api=(p,o)=>fetch(p,o).then(r=>r.json());
+const post=(p,b)=>api(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+const SRC_LABEL={original:"passage",concept:"concept",brainstorm:"brainstorm",note:"note"};
+
+function Usage({u}){if(!u||!u.total_tokens)return null;
+  return <div className="usage"><b>+{u.total_tokens.toLocaleString()} tokens</b>
+   {u.is_gemini?` · ${u.pct_day.toFixed(2)}% of today's free-tier budget`:` · ${u.provider||"llm"}`}</div>;}
+
+function Annot({a,onDelete}){
+  return <div className="note">
+    {a.quote&&<div className="quote">“{a.quote}”</div>}
+    {a.note&&<div className="ntext">{a.note}</div>}
+    <div className="nmeta"><span className={"tag t-"+(a.source||"note")}>{SRC_LABEL[a.source]||"note"}</span>
+      <span className="when">{a.created}</span>
+      <button className="x" onClick={()=>onDelete(a.id)}>delete</button></div></div>;}
+
+function PanelNotes({list,onDelete}){if(!list||!list.length)return null;
+  return <div className="pnotes"><div className="pnh">notes here ({list.length})</div>
+    {list.map(a=><div className="pn" key={a.id}>
+      {a.quote&&<span className="pq">“{a.quote.slice(0,60)}{a.quote.length>60?"…":""}” </span>}
+      <span>{a.note}</span><button className="x" onClick={()=>onDelete(a.id)}>×</button></div>)}</div>;}
+
+function App(){
+  const params=new URLSearchParams(location.search);
+  const [book]=useState(params.get("book")||"what-is-called-thinking");
+  const [ov,setOv]=useState(null);
+  const [idx,setIdx]=useState(parseInt(params.get("idx")||"0",10)||0);
+  const [sec,setSec]=useState(null);
+  const [busy,setBusy]=useState("");
+  const [usage,setUsage]=useState(null);
+  const [comp,setComp]=useState({note:"",quote:"",source:"note"});
+  const taRef=useRef();
+
+  useEffect(()=>{api("/api/book?id="+encodeURIComponent(book)).then(setOv);},[book]);
+  const loadSec=useCallback((i)=>{setSec(null);setUsage(null);
+    api("/api/section?book="+encodeURIComponent(book)+"&idx="+i).then(setSec);},[book]);
+  useEffect(()=>{loadSec(idx);
+    history.replaceState(null,"","/read?book="+encodeURIComponent(book)+"&idx="+idx);},[idx,loadSec,book]);
+
+  const go=(i)=>{if(!ov)return;setIdx(Math.max(0,Math.min(ov.n_sections-1,i)));window.scrollTo({top:0});};
+
+  const describe=async()=>{setBusy("describe");
+    const r=await post("/api/section/describe",{book,idx});setBusy("");
+    if(r.error){alert(r.error+(r.hint?"\n"+r.hint:""));return;}
+    setUsage(r.usage);setSec(s=>({...s,description:r.description}));
+    setOv(o=>o&&{...o,n_described:o.n_described+(r.cached?0:1),
+      sections:o.sections.map(x=>x.idx===idx?{...x,described:true,title:r.description.title}:x)});};
+
+  const brainstorm=async()=>{setBusy("brainstorm");
+    const r=await post("/api/brainstorm",{book,idx});setBusy("");
+    if(r.error){alert(r.error+(r.hint?"\n"+r.hint:""));return;}
+    setUsage(r.usage);setSec(s=>({...s,brainstorm:r.brainstorm}));};
+
+  const grab=()=>{try{return (window.getSelection().toString()||"").trim();}catch(e){return "";}};
+  const annotateFrom=(source)=>{const q=grab();setComp(c=>({...c,source,quote:q}));
+    if(taRef.current){taRef.current.focus();taRef.current.scrollIntoView({block:"center"});}};
+
+  const addNote=async()=>{if(!comp.note&&!comp.quote)return;
+    const r=await post("/api/annotations",{target:sec.id,kind:comp.quote?"highlight":"note",
+      quote:comp.quote,note:comp.note,source:comp.source});
+    if(r.annotation){setSec(s=>({...s,annotations:[...(s.annotations||[]),r.annotation]}));
+      setComp({note:"",quote:"",source:"note"});}};
+
+  const delNote=async(id)=>{await post("/api/annotations/delete",{id});
+    setSec(s=>({...s,annotations:(s.annotations||[]).filter(a=>a.id!==id)}));};
+
+  if(!ov)return <div className="rwrap">loading book…</div>;
+  if(ov.error)return <div className="rwrap"><h1>Nothing to read yet</h1>
+    <div className="hint">{ov.error}<br/>{ov.hint}</div></div>;
+
+  const anns=(sec&&sec.annotations)||[];
+  const bySource=(s)=>anns.filter(a=>(a.source||"note")===s);
+  const d=sec&&sec.description;
+
+  return <div className="rwrap">
+    <div className="top">
+      <div><h1>{ov.title}</h1><div className="byline">{ov.author} · parallel reader
+        &nbsp;·&nbsp;<a href="/">← panel</a></div></div>
+      <div className="navc">
+        <button disabled={idx<=0} onClick={()=>go(idx-1)}>‹ prev</button>
+        <select value={idx} onChange={e=>go(parseInt(e.target.value,10))}>
+          {ov.sections.map(s=><option key={s.idx} value={s.idx}>
+            {(s.idx+1)+". "+(s.title||s.heading||("section "+(s.idx+1)))+(s.described?" ✓":"")}</option>)}
+        </select>
+        <button disabled={idx>=ov.n_sections-1} onClick={()=>go(idx+1)}>next ›</button>
+        <span className="prog">{idx+1}/{ov.n_sections} · {ov.n_described} described</span>
+      </div>
+    </div>
+    {usage&&<Usage u={usage}/>}
+    {!sec?<div className="rwrap">loading section…</div>:
+    <div className="grid">
+      <div className="panel">
+        <div className="ph"><h3>Original passage</h3>
+          <button className="mini" onClick={()=>annotateFrom("original")}>✎ note selection</button></div>
+        <div className="pmeta">{sec.word_count} words · {sec.chunk_ids.length} chunks
+          {sec.page_start?` · pp. ${sec.page_start}–${sec.page_end}`:""}</div>
+        <div className="passage">{sec.text.split(/\n\n+/).map((p,i)=><p key={i}>{p}</p>)}</div>
+        <PanelNotes list={bySource("original")} onDelete={delNote}/>
+      </div>
+
+      <div className="panel">
+        <div className="ph"><h3>Conceptual description</h3>
+          <button className="mini" onClick={()=>annotateFrom("concept")}>✎ note selection</button></div>
+        {!d?<div className="empty"><p>Not generated yet — what Heidegger discusses and the concepts he introduces here.</p>
+          <button disabled={!!busy} onClick={describe}>{busy==="describe"?"generating…":"Generate with Gemini"}</button></div>
+        :<div className="concept">
+          <div className="ctitle">{d.title}</div>
+          <p className="csum">{d.summary}</p>
+          {d.concepts.length>0&&<div><h4>Concepts at work</h4>
+            {d.concepts.map((c,i)=><div className="cc" key={i}><b>{c.name}</b>{c.gloss?" — "+c.gloss:""}</div>)}</div>}
+          {d.introduced.length>0&&<div><h4>Introduced here</h4>
+            <div className="chips">{d.introduced.map((x,i)=><span className="chip" key={i}>{x}</span>)}</div></div>}
+          {d.discusses.length>0&&<div><h4>Discusses</h4>
+            <ul className="disc">{d.discusses.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
+          <button className="mini redo" disabled={!!busy} onClick={describe}>regenerate</button>
+        </div>}
+        <PanelNotes list={bySource("concept")} onDelete={delNote}/>
+      </div>
+
+      <div className="panel notes">
+        <div className="ph"><h3>Notes</h3><span className="cnt">{anns.length}</span></div>
+        <div className="composer">
+          {comp.quote&&<div className="quote sel">“{comp.quote}” <button className="x" onClick={()=>setComp(c=>({...c,quote:""}))}>clear</button></div>}
+          <div className="srow">on:{["note","original","concept","brainstorm"].map(s=>
+            <button key={s} className={"seg"+(comp.source===s?" on":"")} onClick={()=>setComp(c=>({...c,source:s}))}>{SRC_LABEL[s]}</button>)}</div>
+          <textarea ref={taRef} rows={3} placeholder="write a concept, a note, a question…"
+            value={comp.note} onChange={e=>setComp(c=>({...c,note:e.target.value}))}/>
+          <button onClick={addNote}>Add note</button>
+        </div>
+        <div className="nlist">
+          {anns.length===0&&<div className="empty">No notes yet. Select text in any panel and hit “✎ note selection”, or write one above.</div>}
+          {anns.map(a=><Annot key={a.id} a={a} onDelete={delNote}/>)}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="ph"><h3>AI brainstorm</h3>
+          <button className="mini" onClick={()=>annotateFrom("brainstorm")}>✎ note selection</button></div>
+        {!sec.brainstorm?<div className="empty"><p>Interpretations, tensions and follow-ups grounded in this section.</p>
+          <button disabled={!!busy} onClick={brainstorm}>{busy==="brainstorm"?"thinking…":"Generate with Gemini"}</button></div>
+        :<div className="bs">
+          {sec.brainstorm.interpretations.length>0&&<div><h4>Line of interpretation</h4>
+            <ol className="interp">{sec.brainstorm.interpretations.map((it,i)=>
+              <li key={i}>{it.reading}{it.passage>=0?<span className="pidx"> ¶{it.passage}</span>:null}</li>)}</ol></div>}
+          {sec.brainstorm.comparisons.length>0&&<div><h4>Tensions</h4>
+            {sec.brainstorm.comparisons.map((c,i)=><div className="cmp" key={i}><b>{c.between}</b><br/>{c.contrast}</div>)}</div>}
+          {sec.brainstorm.follow_ups.length>0&&<div><h4>Follow-ups</h4>
+            <div className="chips">{sec.brainstorm.follow_ups.map((f,i)=><span className="chip" key={i}>{f}</span>)}</div></div>}
+          <button className="mini redo" disabled={!!busy} onClick={brainstorm}>regenerate</button>
+        </div>}
+        <PanelNotes list={bySource("brainstorm")} onDelete={delNote}/>
+      </div>
+    </div>}
+  </div>;}
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script></body></html>"""
 
