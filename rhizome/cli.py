@@ -124,6 +124,19 @@ def cmd_conceptmap(_):
     conceptmap.build()
 
 
+def cmd_sections(args):
+    """Divide a book into ~1000-word sections (the reading lens for /read).
+    Skeleton is free; --llm generates the per-section conceptual descriptions
+    with Gemini (cached, cost-guarded — watch the free-tier % it prints)."""
+    from . import sections
+    sections.build_skeleton(args.book, target_words=args.target, force=args.force)
+    if args.llm:
+        sections.build_descriptions(args.book, sample=args.sample, force=args.force)
+    else:
+        print("  (skeleton only — add --llm to generate conceptual descriptions, "
+              "or open /read and generate per section)")
+
+
 def cmd_eval_embed(_):
     from . import eval_embed
     eval_embed.main()
@@ -258,6 +271,15 @@ def main():
     cp.set_defaults(func=cmd_concepts)
     sub.add_parser("conceptmap", help="(re)build the concept map (json + offline html)"
                    ).set_defaults(func=cmd_conceptmap)
+
+    sc = sub.add_parser("sections", help="divide a book into ~1000w sections + Gemini "
+                        "conceptual descriptions (the /read reading lens)")
+    sc.add_argument("--book", default="what-is-called-thinking", help="book id to section")
+    sc.add_argument("--target", type=int, default=1000, help="target words per section")
+    sc.add_argument("--llm", action="store_true", help="also generate conceptual descriptions (Gemini)")
+    sc.add_argument("--sample", type=int, default=None, help="cap sections described (testing)")
+    sc.add_argument("--force", action="store_true", help="re-divide / re-describe even if cached")
+    sc.set_defaults(func=cmd_sections)
 
     sub.add_parser("eval-embed", help="score embedding models on the in-domain gold set"
                    ).set_defaults(func=cmd_eval_embed)
