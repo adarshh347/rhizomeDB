@@ -125,3 +125,4 @@ class Store:
             c["corpus_size"] = len(self.chunks)
             out.append(c)
         return out
+
