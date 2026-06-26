@@ -173,6 +173,11 @@
     <div class="tag">Not retrieval — an invitation to explore. It surfaces passages that are
       distant enough to be surprising yet resonant enough to be genuine, <em>across</em> authors,
       and rejects the forced ones.</div>
+    <div style="margin:10px 0 4px;display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px">
+      <a href="/library">📖 Library — read &amp; annotate whole books</a>
+      <a href="/conceptmap">🕸 Concept map</a>
+      <a href="/chunkmap">✷ Chunk map</a>
+    </div>
     <div class="chips" id="chips"></div>
   </header>
 
@@ -640,6 +645,17 @@ function finish(){
   });
   $('#runBtn').disabled=false; $('#runBtn').textContent='Explore →';
 }
+
+// Deep-link: /?mode=chunk&value=<id> (the reader's "Explore this") pre-fills the
+// form and runs automatically once the page is ready.
+(function(){
+  const p = new URLSearchParams(location.search);
+  const m = p.get('mode'), v = p.get('value');
+  if(!m && !v) return;
+  if(m){ modeSel.value = m; if(modeSel.onchange) modeSel.onchange(); }
+  if(v){ valIn.value = v; valIn.style.display=''; }
+  setTimeout(()=>$('#runBtn').click(), 350);
+})();
 </script>
 </body>
 </html>
