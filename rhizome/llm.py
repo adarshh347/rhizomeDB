@@ -95,6 +95,19 @@ def _is_rate_limit(e: Exception) -> bool:
                                 "quota", "resource_exhausted", "too many requests"))
 
 
+def _is_transient(e: Exception) -> bool:
+    """Transient server-side errors (overloaded / unavailable / 5xx / timeout) —
+    also worth failing over to the next provider rather than aborting the run."""
+    s = f"{type(e).__name__} {e}".lower()
+    return any(t in s for t in ("500", "502", "503", "504", "overloaded",
+                                "unavailable", "internalservererror", "timeout",
+                                "temporarily"))
+
+
+def _should_failover(e: Exception) -> bool:
+    return _is_rate_limit(e) or _is_transient(e)
+
+
 class LLMClient:
     def __init__(self, provider, model, base_url, api_key):
         self.provider = provider
@@ -175,8 +188,9 @@ class FailoverClient:
             try:
                 text = be.complete(*args, **kwargs)
             except Exception as e:
-                if _is_rate_limit(e) and be is not self.backends[-1]:
-                    errors.append(f"{be.provider}:rate-limited"); continue
+                if _should_failover(e) and be is not self.backends[-1]:
+                    why = "rate-limited" if _is_rate_limit(e) else "unavailable"
+                    errors.append(f"{be.provider}:{why}"); continue
                 raise
             self.active = be
             self.last_usage = dict(be.last_usage)
