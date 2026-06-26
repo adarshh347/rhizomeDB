@@ -101,14 +101,14 @@ def load_edges() -> list[dict]:
     if not config.EDGES_PATH.exists():
         return []
     with config.EDGES_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+        return [json.loads(line) for line in f if line.strip()]
 
 
 def load_judged() -> list[dict]:
     if not config.JUDGED_PATH.exists():
         return []
     with config.JUDGED_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+        return [json.loads(line) for line in f if line.strip()]
 
 
 def append_judged(seed_label: str, confirmed: list[dict]) -> list[dict]:
