@@ -49,7 +49,8 @@
     <div class="tabs">
       <button class="tab active" data-pane="notes" id="tab-notes">Notes</button>
       <button class="tab" data-pane="companion" id="tab-companion">Companion<span id="companionCount"></span></button>
-        <button class="tab" data-pane="chat" id="tab-chat">Discuss</button>
+      <button class="tab" data-pane="rhythm" id="tab-rhythm">Rhythm</button>
+      <button class="tab" data-pane="chat" id="tab-chat">Discuss</button>
     </div>
 
     <div class="pane active" id="pane-notes">
@@ -62,6 +63,33 @@
       <div class="railhint">Spans you kept from the companion's answers — select text in any AI
         reply to save it here, linked to the passage it grew from.</div>
       <div id="companionlist"><div class="empty">Nothing yet.</div></div>
+    </div>
+
+    <div class="pane" id="pane-rhythm">
+      <label class="rhythm-optin"><input type="checkbox" id="rhythmOn"> Capture reading rhythm</label>
+      <div class="railhint">A passive mirror of <i>how</i> you read — pace, re-reads, lingering selections —
+        kept <b>only in this browser</b>. It surfaces where you slowed, as an invitation, never a verdict.
+        Idle and hidden-tab time are stripped out.</div>
+      <div id="rhythmBody" style="display:none">
+        <div class="rhythm-status" id="rhythmStatus"></div>
+        <div class="rhythm-controls">
+          <label class="rhythm-check"><input type="checkbox" id="heatOn"> Show heatmap</label>
+          <select id="heatMetric" class="rhythm-sel">
+            <option value="attentive_ms">attentive time</option>
+            <option value="speed_z">pace (slowness)</option>
+            <option value="revisits">re-reads</option>
+          </select>
+        </div>
+        <button class="btn ghost" id="reviewBtn" style="width:100%;margin-top:6px">Review this session</button>
+        <div id="candidates"></div>
+        <div class="eyebrow" style="margin-top:20px">Reading self-portrait</div>
+        <div id="selfPortrait"><div class="empty">Read a while with capture on…</div></div>
+        <div class="rhythm-foot">
+          <span class="rhythm-link" id="whatsLogged">What's logged</span>
+          <span class="rhythm-link danger" id="clearRhythm">Clear data</span>
+        </div>
+        <div id="loggedView" class="rhythm-logged" style="display:none"></div>
+      </div>
     </div>
 
     <div class="pane" id="pane-chat">

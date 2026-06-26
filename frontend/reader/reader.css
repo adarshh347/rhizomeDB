@@ -379,3 +379,45 @@ body.toc-collapsed.rail-collapsed .r-shell{grid-template-columns:0 0 minmax(0,1f
 .loom-thread .tx{font-family:var(--serif);font-size:14.5px;color:var(--ink);line-height:1.55}
 .loom-thread .del{float:right;cursor:pointer;color:var(--dim);font:11px var(--ui)}
 .loom-thread .del:hover{color:var(--accent-deep);text-decoration:underline}
+
+/* ============================ READING RHYTHM ============================ */
+.tabs{flex-wrap:wrap}   /* room for the 4th rail tab */
+.rhythm-optin{display:flex;gap:9px;align-items:center;font:600 13px var(--ui);color:var(--ink);
+  cursor:pointer;margin:2px 2px 12px}
+.rhythm-optin input{accent-color:var(--accent);width:16px;height:16px}
+.rhythm-status{font-size:12.5px;color:var(--ink2);background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;line-height:1.5;margin-bottom:14px}
+.rhythm-controls{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.rhythm-check{display:flex;gap:7px;align-items:center;font:500 12.5px var(--ui);color:var(--ink2);cursor:pointer;white-space:nowrap}
+.rhythm-check input{accent-color:var(--accent)}
+.rhythm-sel{flex:1;background:var(--panel);border:1px solid var(--line2);color:var(--ink);
+  border-radius:8px;padding:7px 9px;font:13px var(--ui)}
+.rhythm-lead{font-family:var(--serif);font-size:15px;font-weight:700;color:var(--ink);margin:14px 0 10px}
+.cand{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:12px;
+  padding:12px 14px;margin-bottom:11px;background:var(--panel);box-shadow:var(--shadow)}
+.cand .ce{font:600 11px var(--ui);color:var(--accent-deep);letter-spacing:.02em;margin-bottom:6px}
+.cand .cq{font-family:var(--serif);font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:10px}
+.cand .cacts{display:flex;gap:8px;align-items:center}
+.cand .cacts .btn{padding:6px 13px}
+.cand .cand-jump{margin-left:auto;color:var(--accent-deep);font:600 12px var(--ui);cursor:pointer}
+.cand .cand-jump:hover{text-decoration:underline}
+.sp-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12.5px}
+.sp-c{font-family:var(--serif);color:var(--ink);width:84px;flex-shrink:0;text-transform:capitalize}
+.sp-bar{flex:1;height:7px;background:var(--panel2);border-radius:99px;overflow:hidden;position:relative}
+.sp-bar span{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--accent);transform:translateX(-50%);
+  border-radius:99px;min-width:3px}
+.sp-n{color:var(--dim);font-size:11px;width:74px;text-align:right;flex-shrink:0}
+.rhythm-foot{display:flex;justify-content:space-between;margin-top:22px;padding-top:12px;border-top:1px solid var(--line)}
+.rhythm-link{font:600 12px var(--ui);color:var(--accent-deep);cursor:pointer}
+.rhythm-link:hover{text-decoration:underline}
+.rhythm-link.danger{color:var(--dim)}
+.rhythm-link.danger:hover{color:#c0392b}
+.rhythm-logged{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px;font:12px var(--ui)}
+.rhythm-logged .ll-top{margin-bottom:8px;color:var(--ink2)}
+.rhythm-logged .ll-row{display:flex;justify-content:space-between;color:var(--dim);padding:2px 0}
+.rhythm-logged .ll-path{margin-top:8px;color:var(--faint);font-size:10.5px;word-break:break-all}
+
+/* heatmap shading over the reading column */
+.rhythm-heat .para{background:color-mix(in srgb, var(--accent) calc(var(--heat,0)*46%), transparent)}
+.rhythm-heat .para.hot{outline:1.5px solid var(--accent);outline-offset:-1px}
+.rhythm-heat .para.hot::after{content:"✦";position:absolute;right:8px;top:8px;color:var(--accent);font-size:12px;opacity:.8}

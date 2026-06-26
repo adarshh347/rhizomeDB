@@ -584,4 +584,168 @@ document.querySelectorAll('.gutter').forEach(g => g.addEventListener('dblclick',
   shell.style.removeProperty(side === 'toc' ? '--toc-w' : '--rail-w');
 }));
 
+// ================================================================ READING RHYTHM
+// A passive, opt-in, local-only layer: log lightweight reading behaviour, and at
+// session end offer back where you slowed/returned — as evidence-bound invitations,
+// never verdicts. Capture only runs when the reader opts in (R7).
+const RHYTHM = {on:false, session:'s-'+Date.now(), buf:[], current:null,
+                idle:false, idleTimer:null, flushTimer:null, lastScroll:0, lastY:0};
+const IDLE_MS = 20000;   // no input for 20s → idle (open question default)
+let RHYTHM_DATA = null;
+
+function rhythmEnabled(){ return localStorage.getItem('rhz_rhythm_on') === '1'; }
+function logEv(type, extra){ if(!RHYTHM.on) return;
+  RHYTHM.buf.push({t: Date.now(), type, ...(extra||{})});
+  if(RHYTHM.buf.length >= 40) flushRhythm(); }
+async function flushRhythm(){
+  if(!RHYTHM.buf.length) return;
+  const events = RHYTHM.buf.splice(0);
+  try{ await fetch('/api/behavior', {method:'POST', headers:{'Content-Type':'application/json'},
+    keepalive:true, body: JSON.stringify({book:BOOK_ID, session:RHYTHM.session, events})}); }
+  catch(e){ RHYTHM.buf.unshift(...events); }
+}
+function onActivePassage(id){
+  if(!RHYTHM.on || !id || id === RHYTHM.current) return;
+  RHYTHM.current = id; logEv('enter', {passage:id});
+}
+function resetIdle(){
+  if(!RHYTHM.on) return;
+  if(RHYTHM.idle){ RHYTHM.idle = false; logEv('active'); }
+  clearTimeout(RHYTHM.idleTimer);
+  RHYTHM.idleTimer = setTimeout(() => { RHYTHM.idle = true; logEv('idle'); }, IDLE_MS);
+}
+function startRhythm(){
+  RHYTHM.on = true;
+  if(activeId){ RHYTHM.current = activeId; logEv('enter', {passage:activeId}); }
+  RHYTHM.flushTimer = setInterval(flushRhythm, 15000);
+  resetIdle();
+}
+function stopRhythm(){ RHYTHM.on = false; clearInterval(RHYTHM.flushTimer); clearTimeout(RHYTHM.idleTimer); }
+
+['pointermove','keydown','mousedown','wheel','touchstart'].forEach(ev =>
+  window.addEventListener(ev, resetIdle, {passive:true}));
+$('#main').addEventListener('scroll', () => { resetIdle(); if(!RHYTHM.on) return;
+  const now = Date.now(); if(now - RHYTHM.lastScroll < 250) return; RHYTHM.lastScroll = now;
+  const y = $('#main').scrollTop; const dir = y > RHYTHM.lastY ? 'down' : 'up'; RHYTHM.lastY = y;
+  logEv('scroll', {y:Math.round(y), dir, passage:activeId}); }, {passive:true});
+// selection that did NOT become a highlight (scored signal)
+$('#reading').addEventListener('mouseup', () => { if(!RHYTHM.on) return;
+  const sel = window.getSelection(); const txt = (sel?sel.toString():'').trim(); if(txt.length < 3) return;
+  let node = sel.anchorNode; while(node && !(node.classList && node.classList.contains('para'))) node = node.parentElement;
+  if(node) logEv('select', {passage:node.dataset.id, len:txt.length, highlighted:false}); });
+document.addEventListener('visibilitychange', () => { if(!RHYTHM.on) return;
+  if(document.hidden){ logEv('hidden'); if(RHYTHM.current) logEv('exit', {passage:RHYTHM.current}); flushRhythm(); }
+  else { logEv('visible'); resetIdle(); } });
+window.addEventListener('pagehide', () => { if(!RHYTHM.on) return;
+  if(RHYTHM.current) logEv('exit', {passage:RHYTHM.current}); flushRhythm(); });
+
+// ---- rhythm UI (the Rhythm rail tab) ----
+async function refreshRhythm(){
+  try{ RHYTHM_DATA = await (await fetch('/api/rhythm?book='+encodeURIComponent(BOOK_ID))).json(); }
+  catch(e){ return; }
+  renderRhythmStatus(); renderSelfPortrait();
+  if($('#heatOn') && $('#heatOn').checked) applyHeatmap();
+}
+function renderRhythmStatus(){
+  const d = RHYTHM_DATA, el = $('#rhythmStatus'); if(!d || !el) return;
+  el.innerHTML = d.have_baseline
+    ? `Baseline ready · <b>${d.baseline.n_evidence}</b> passages · ~<b>${Math.round(d.baseline.median_ms_per_word)}</b> ms/word usual pace.`
+    : `Low confidence — read a little more (<b>${d.baseline.n_evidence||0}</b> passages so far) to build your baseline.`;
+}
+function applyHeatmap(){
+  if(!RHYTHM_DATA) return;
+  const metric = $('#heatMetric').value, P = RHYTHM_DATA.passages;
+  const val = p => metric==='speed_z' ? Math.max(0, p.speed_z) : (p[metric] || 0);
+  const max = Math.max(1, ...Object.values(P).map(val));
+  document.body.classList.add('rhythm-heat');
+  $('#reading').querySelectorAll('.para').forEach(para => {
+    const p = P[para.dataset.id];
+    if(!p){ para.style.removeProperty('--heat'); para.classList.remove('hot'); return; }
+    para.style.setProperty('--heat', Math.min(1, val(p)/max).toFixed(3));
+    para.classList.toggle('hot', !!p.hotspot);
+    if(p.evidence) para.title = p.evidence;
+    else if(p.attentive_ms) para.title = `${Math.round(p.attentive_ms/1000)}s attentive`;
+  });
+}
+function clearHeatmap(){ document.body.classList.remove('rhythm-heat');
+  $('#reading').querySelectorAll('.para').forEach(p => { p.style.removeProperty('--heat'); p.classList.remove('hot'); }); }
+function renderSelfPortrait(){
+  const box = $('#selfPortrait'), d = RHYTHM_DATA; if(!box) return;
+  if(!d || !d.have_baseline){ box.innerHTML='<div class="empty">A baseline is still forming — read a while with capture on.</div>'; return; }
+  const byChar = {};
+  for(const para of BOOK.paragraphs){ const p = d.passages[para.id];
+    if(!p || p.attentive_ms < 1500) continue;
+    const c = para.character || 'untagged'; (byChar[c] = byChar[c] || []).push(p.speed_z); }
+  const rows = Object.entries(byChar).filter(([,v]) => v.length >= 2)
+    .map(([c,v]) => ({c, z: v.reduce((a,b)=>a+b,0)/v.length, n: v.length}))
+    .sort((a,b) => b.z - a.z);
+  if(!rows.length){ box.innerHTML='<div class="empty">Not enough tagged passages read yet.</div>'; return; }
+  box.innerHTML = rows.map(r => `<div class="sp-row">
+      <span class="sp-c">${esc(r.c)}</span>
+      <span class="sp-bar"><span style="width:${Math.min(100,Math.max(5,50+r.z*26))}%"></span></span>
+      <span class="sp-n">${r.z>0.3?'you slow':r.z<-0.3?'you skim':'on pace'} · ${r.n}</span></div>`).join('');
+}
+
+// candidate sparks (R6b)
+async function reviewSession(){
+  await flushRhythm();
+  let d; try{ d = await (await fetch('/api/candidates?book='+encodeURIComponent(BOOK_ID))).json(); }catch(e){ return; }
+  const box = $('#candidates');
+  if(!d.candidates || !d.candidates.length){
+    box.innerHTML = `<div class="empty">${d.have_baseline?'No standout places this session — yet.':'Read more to build a baseline first.'}</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="rhythm-lead">${d.candidates.length} place${d.candidates.length>1?'s':''} drew you</div>`
+    + d.candidates.map(c => { const para = BOOK.paragraphs.find(p => p.id === c.passage_id) || {};
+      return `<div class="cand">
+        <div class="ce">${esc(c.evidence)}</div>
+        <div class="cq">${esc((para.text||c.passage_id).slice(0,150))}…</div>
+        <div class="cacts">
+          <button class="btn primary keep" data-id="${esc(c.passage_id)}" data-ev="${esc(c.evidence)}">Keep</button>
+          <button class="btn ghost dismiss" data-id="${esc(c.passage_id)}" data-ev="${esc(c.evidence)}">Dismiss</button>
+          <span class="cand-jump" data-id="${esc(c.passage_id)}">jump ↗</span>
+        </div></div>`; }).join('');
+  box.querySelectorAll('.keep').forEach(b => b.onclick = () => confirmCand(b, 'keep'));
+  box.querySelectorAll('.dismiss').forEach(b => b.onclick = () => confirmCand(b, 'dismiss'));
+  box.querySelectorAll('.cand-jump').forEach(a => a.onclick = () => { switchTab('notes'); jumpToPassage(a.dataset.id); });
+}
+async function confirmCand(btn, action){
+  await fetch('/api/candidates/confirm', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({book:BOOK_ID, passage_id:btn.dataset.id, action, evidence:btn.dataset.ev})});
+  const card = btn.closest('.cand'); if(card) card.remove();
+  toast(action==='keep' ? 'Kept — added to your notes' : 'Dismissed');
+  if(action==='keep') loadAnnotations();
+}
+
+// ---- wire the rhythm controls ----
+(function wireRhythm(){
+  const onBox = $('#rhythmOn'); if(!onBox) return;
+  onBox.checked = rhythmEnabled();
+  $('#rhythmBody').style.display = rhythmEnabled() ? '' : 'none';
+  onBox.onchange = () => { const on = onBox.checked;
+    localStorage.setItem('rhz_rhythm_on', on ? '1' : '0');
+    $('#rhythmBody').style.display = on ? '' : 'none';
+    if(on){ startRhythm(); refreshRhythm(); } else { stopRhythm(); clearHeatmap(); } };
+  $('#heatOn').onchange = () => { if($('#heatOn').checked) refreshRhythm().then(applyHeatmap); else clearHeatmap(); };
+  $('#heatMetric').onchange = () => { if($('#heatOn').checked) applyHeatmap(); };
+  $('#reviewBtn').onclick = reviewSession;
+  $('#whatsLogged').onclick = async () => {
+    const v = $('#loggedView'); if(v.style.display !== 'none'){ v.style.display='none'; return; }
+    const d = await (await fetch('/api/behavior/logged?book='+encodeURIComponent(BOOK_ID))).json();
+    v.style.display = 'block';
+    v.innerHTML = `<div class="ll-top"><b>${d.total||0}</b> events · <b>${d.sessions||0}</b> sessions</div>`
+      + Object.entries(d.by_type||{}).map(([k,n]) => `<div class="ll-row"><span>${esc(k)}</span><span>${n}</span></div>`).join('')
+      + `<div class="ll-path">stored at ${esc(d.path||'')}</div>`;
+  };
+  $('#clearRhythm').onclick = async () => {
+    if(!confirm('Clear all reading-rhythm data for this book? This cannot be undone.')) return;
+    await fetch('/api/behavior/clear', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({book:BOOK_ID})});
+    RHYTHM_DATA = null; clearHeatmap(); $('#candidates').innerHTML = '';
+    $('#selfPortrait').innerHTML = '<div class="empty">Cleared.</div>';
+    $('#loggedView').style.display = 'none'; renderRhythmStatus(); toast('Reading-rhythm data cleared');
+  };
+  if(rhythmEnabled()) startRhythm();
+})();
+
 boot();
