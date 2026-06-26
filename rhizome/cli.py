@@ -116,7 +116,7 @@ def cmd_concepts(args):
     if args.llm:
         concepts.extract_llm(level=args.level, books=args.book, sample=args.sample)
     else:
-        concepts.extract_heuristic(level=args.level, top_concepts=args.top)
+        concepts.extract_heuristic(level=args.level, top_concepts=args.top, books=args.book)
 
 
 def cmd_conceptmap(_):

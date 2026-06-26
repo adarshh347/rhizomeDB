@@ -57,10 +57,14 @@ def _candidates(toks):
 
 
 def extract_heuristic(level: str = "chunk", top_concepts: int = 160,
-                      per_chunk: int = 6) -> dict:
+                      per_chunk: int = 6, books=None) -> dict:
     chunks = chunking.load_level(level)
     if not chunks:
         raise SystemExit(f"Level '{level}' not built. Run `rhizome build` first.")
+    if books:
+        chunks = [c for c in chunks if c["book_id"] in books]
+        if not chunks:
+            raise SystemExit(f"No chunks for book(s) {books}.")
     n = len(chunks)
     per_chunk_grams = []
     df = Counter()
@@ -100,11 +104,11 @@ def extract_heuristic(level: str = "chunk", top_concepts: int = 160,
                  "score": round(mass[g], 2), "books": dict(books[g])}
                 for g in vocab if count[g] > 0]
     concepts.sort(key=lambda x: x["count"], reverse=True)
-    data = {"mode": "heuristic", "built_from": level,
+    data = {"mode": "heuristic", "built_from": level, "books": books or "all",
             "concepts": concepts, "chunk_concepts": chunk_concepts}
     _save(data)
     print(f"concepts[heuristic]: {len(concepts)} concepts over {len(chunk_concepts)} "
-          f"chunks -> {CONCEPTS_PATH.name}")
+          f"chunks{' ['+','.join(books)+']' if books else ''} -> {CONCEPTS_PATH.name}")
     return data
 
 
