@@ -45,18 +45,40 @@ def _safe(name: str) -> str:
 
 # --- annotations -------------------------------------------------------------
 def add_annotation(target: str, kind: str, *, quote: str = "", note: str = "",
-                   color: str = "amber") -> dict:
-    """kind: 'highlight' (a marked span, optional note) | 'note' (free comment)."""
+                   color: str = "amber", source: str = "reader",
+                   passage_id: str = "", msg_id: str = "", chat_target: str = "") -> dict:
+    """kind: 'highlight' (a marked span, optional note) | 'note' (free comment).
+
+    source — where the annotation grew from. Human marks default to 'reader'
+    (or 'plateau'); 'ai' marks a span the reader highlighted in a *companion
+    answer*. Those carry provenance so they stay parallel-but-linked to the
+    passage the discussion was about (R3) and so a later graph pass can treat a
+    companion-endorsed insight as a distinct edge origin (R5):
+      passage_id   the chunk the discussion concerns (jump target)
+      msg_id       the chat message the span came from
+      chat_target  the thread the message lives in (book:/ann:/plateau:)
+    The quote is stored verbatim so the mark survives if the reply is later
+    regenerated and no longer matches the live text."""
     _ensure()
     rec = {"id": _uid("an"), "target": target, "kind": kind,
            "quote": quote.strip(), "note": note.strip(), "color": color,
-           "created": _now()}
+           "source": (source or "reader").strip(), "created": _now()}
+    if passage_id:
+        rec["passage_id"] = passage_id
+    if msg_id:
+        rec["msg_id"] = msg_id
+    if chat_target:
+        rec["chat_target"] = chat_target
     with ANNOT_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec
 
 
-def list_annotations(target: str | None = None) -> list[dict]:
+def list_annotations(target: str | None = None, *, source: str | None = None,
+                     passage_id: str | None = None) -> list[dict]:
+    """All annotations, optionally filtered. `target` matches the legacy target
+    field; `source` ('reader'|'ai'|…) and `passage_id` filter the provenance
+    fields (R3). Records missing `source` read as 'reader' so old data is valid."""
     if not ANNOT_PATH.exists():
         return []
     out = []
@@ -66,9 +88,20 @@ def list_annotations(target: str | None = None) -> list[dict]:
             if not line:
                 continue
             r = json.loads(line)
-            if target is None or r.get("target") == target:
-                out.append(r)
+            if target is not None and r.get("target") != target:
+                continue
+            if source is not None and (r.get("source") or "reader") != source:
+                continue
+            if passage_id is not None and r.get("passage_id") != passage_id:
+                continue
+            out.append(r)
     return out
+
+
+def list_companion_notes(passage_id: str | None = None) -> list[dict]:
+    """Companion notes — annotations made on AI answers (source=='ai'),
+    optionally for one passage. The 'From the companion' section reads this."""
+    return list_annotations(source="ai", passage_id=passage_id)
 
 
 def delete_annotation(ann_id: str) -> bool:
@@ -91,13 +124,22 @@ def load_chat(target: str) -> list[dict]:
     p = _chat_path(target)
     if not p.exists():
         return []
-    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    # Backfill a stable msg_id for pre-R1 records by position (append-only, so the
+    # index is stable). New records already carry one from append_chat.
+    for i, r in enumerate(rows):
+        r.setdefault("msg_id", f"{target}:{i}")
+    return rows
 
 
 def append_chat(target: str, role: str, content: str) -> dict:
+    """Append a message and stamp it with a stable msg_id ("<target>:<n>") so a
+    reader can anchor an annotation to this exact answer (R1)."""
     _ensure()
-    rec = {"role": role, "content": content, "created": _now()}
-    with _chat_path(target).open("a", encoding="utf-8") as f:
+    p = _chat_path(target)
+    n = sum(1 for _ in p.open(encoding="utf-8")) if p.exists() else 0
+    rec = {"role": role, "content": content, "msg_id": f"{target}:{n}", "created": _now()}
+    with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec
 
