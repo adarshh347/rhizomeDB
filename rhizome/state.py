@@ -1,7 +1,7 @@
 """Live pipeline snapshot — the single source of truth for the panel.
 
 Re-reads the index every call, so both the static panel (`tools/panel.py`) and
-the running server (`rhizome/server.py`) reflect the current state: as you
+the running FastAPI backend (`rhizome/api.py`) reflect the current state: as you
 annotate, rebuild, or explore, the next snapshot shows it.
 """
 import datetime as dt

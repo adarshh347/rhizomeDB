@@ -7,5 +7,7 @@ numpy
 # Connection engine brain
 anthropic
 pydantic
+fastapi
+uvicorn[standard]
 # (boto3 only needed for the optional R2 upload script)
 boto3

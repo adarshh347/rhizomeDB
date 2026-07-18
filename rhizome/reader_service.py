@@ -1,45 +1,55 @@
-#!/usr/bin/env python3
-"""Tiny zero-dependency web frontend for RhizomeDB.
+"""Service layer for the panel + reader — the logic behind the HTTP boundary.
 
-Explains the pipeline, shows the real source of each stage, and streams each
-exploration run live (Server-Sent Events): seed → resonance geometry → judging
-→ synthesis. Run:
+Everything here is pure(ish) domain logic extracted from the old stdlib
+``serve.py`` so the FastAPI app (``rhizome/api.py``) can call it directly and
+the transport is a thin shell. No FastAPI, no ``http.server`` imports live
+here; a route is expected to be a one-liner over one of these functions.
 
-    .venv/bin/python serve.py          # then open http://localhost:8000
-
-The judging + synthesis stages light up only if ANTHROPIC_API_KEY is set;
-otherwise the run stops after the retrieval geometry (still fully usable).
+Engines and stores are loaded once and cached (module globals), because the
+embedding index is large and shared across every request.
 """
+from __future__ import annotations
+
 import inspect
-import json
-import pathlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+import re as _re
 
 import numpy as np
 
-from rhizome import (config, chunk as chunk_mod, embed as embed_mod,
-                     store as store_mod, llm, workspace, rhythm)
-from rhizome.catalog import load_catalog
+from . import (config, chunk as chunk_mod, embed as embed_mod,
+               store as store_mod, llm, workspace, rhythm)
+from .catalog import load_catalog
 
-ROOT = pathlib.Path(__file__).resolve().parent
-INDEX_HTML = ROOT / "frontend" / "index.html"
-READER_HTML = ROOT / "frontend" / "reader.html"
-READER_DIR = ROOT / "frontend" / "reader"   # the whole-book reader app (library.html, book.html, assets)
 
+# ---- lazily-loaded, process-wide singletons ---------------------------------
 _ENGINE = None
+_READER_CHUNKS = None
+_STORES: dict = {}
+_EVAL_CACHE = None
+_WORD_COUNTS: dict = {}
+
+PLATEAU_CACHE_PATH = config.INDEX_DIR / "cache_plateau.json"
+
+
+def reader_chunks():
+    """Load passage text for the reader without requiring embeddings.
+
+    Reading, browsing, and annotation only need chunks.jsonl.  Keeping this
+    separate from Store means the library remains usable before (or without)
+    the optional vector index being built.
+    """
+    global _READER_CHUNKS
+    if _READER_CHUNKS is None:
+        _READER_CHUNKS = chunk_mod.load_chunks()
+    return _READER_CHUNKS
 
 
 def get_engine():
     """Load the engine once (default Store + LLM client) and reuse it."""
     global _ENGINE
     if _ENGINE is None:
-        from rhizome.engine import Engine
+        from .engine import Engine
         _ENGINE = Engine()
     return _ENGINE
-
-
-_STORES = {}
 
 
 def get_store(model_key=config.DEFAULT_EMBED):
@@ -52,6 +62,10 @@ def get_store(model_key=config.DEFAULT_EMBED):
     return _STORES[model_key]
 
 
+def index_ready() -> bool:
+    return config.CHUNKS_PATH.exists() and config.EMBEDDINGS_PATH.exists()
+
+
 def embeddings_status():
     """Each registered embedding model + whether its vectors are built."""
     out = []
@@ -62,21 +76,31 @@ def embeddings_status():
     return out
 
 
-_EVAL_CACHE = None
-
-
 def run_eval(refresh=False):
     """In-domain embedding leaderboard (cached — it embeds the gold queries with
     every model, which takes a few seconds the first time)."""
     global _EVAL_CACHE
     if _EVAL_CACHE is None or refresh:
-        from rhizome import eval_embed
+        from . import eval_embed
         _EVAL_CACHE = eval_embed.evaluate()
     return _EVAL_CACHE
 
 
-def index_ready() -> bool:
-    return config.CHUNKS_PATH.exists() and config.EMBEDDINGS_PATH.exists()
+def status_payload():
+    cat = load_catalog()
+    info = llm.provider_info()
+    return {
+        "index_ready": index_ready(),
+        "n_chunks": sum(1 for _ in config.CHUNKS_PATH.open()) if index_ready() else 0,
+        "books": [{"author": m.get("author"), "title": m.get("title")}
+                  for m in cat.values()],
+        "llm_enabled": info["enabled"],
+        "provider": info["provider"],
+        "providers": info.get("providers", []),
+        "model": info["model"],
+        "hint": info["hint"],
+        "embed_model": config.EMBED_MODEL,
+    }
 
 
 # ---- workflow description (code pulled live from the real source) -----------
@@ -125,17 +149,17 @@ def workflow():
 def passage_with_context(chunk_id: str):
     """The full chunk plus its immediate neighbours in the same book, for the
     reader page. Returns None if the id is unknown."""
-    eng = get_engine()
-    store = eng.store
-    i = store.by_id.get(chunk_id)
+    chunks = reader_chunks()
+    by_id = {c["id"]: i for i, c in enumerate(chunks)}
+    i = by_id.get(chunk_id)
     if i is None:
         return None
-    c = store.chunks[i]
+    c = chunks[i]
 
     def brief(j):
-        if j < 0 or j >= len(store.chunks):
+        if j < 0 or j >= len(chunks):
             return None
-        n = store.chunks[j]
+        n = chunks[j]
         if n["book_id"] != c["book_id"]:
             return None
         return {"id": n["id"], "page": n.get("page"),
@@ -164,10 +188,9 @@ def _ann_counts_by_book():
 def books_index():
     """Every book in the corpus with its reading-relevant stats, for the library
     landing page. Order: most chunks first (the meatier books up top)."""
-    eng = get_engine()
     cat = load_catalog()
     per_book = {}
-    for c in eng.store.chunks:
+    for c in reader_chunks():
         b = c["book_id"]
         per_book[b] = per_book.get(b, 0) + 1
     anns = _ann_counts_by_book()
@@ -187,9 +210,8 @@ def book_payload(book_id: str):
     of contents. Returns None for an unknown book. The chunk ids are the SAME
     targets the annotation/chat APIs already use, so highlights attach per chunk
     and survive across the reader, the explore page, and saved sessions."""
-    eng = get_engine()
     cat = load_catalog()
-    chunks = [c for c in eng.store.chunks if c["book_id"] == book_id]
+    chunks = [c for c in reader_chunks() if c["book_id"] == book_id]
     if not chunks:
         return None
     meta = cat.get(book_id, {})
@@ -199,6 +221,8 @@ def book_payload(book_id: str):
         paras.append({"id": c["id"], "heading": h or None, "page": c.get("page"),
                       "character": c.get("character"),
                       "character_desc": c.get("character_desc"),
+                      "spine_start": c.get("spine_start"),
+                      "spine_end": c.get("spine_end"),
                       "text": c["text"]})
     return {"book_id": book_id, "title": meta.get("title", book_id),
             "author": meta.get("author", "Unknown"), "year": meta.get("year"),
@@ -236,22 +260,18 @@ def _build_toc(chunks):
             for i, c in enumerate(chunks) if i % 25 == 0]
 
 
-_WORD_COUNTS = {}
-
-
 def book_word_counts(book_id: str) -> dict:
     """Per-passage word counts for a book (cached) — needed to normalise dwell
     into ms/word so long passages aren't mistaken for slow reading."""
     if book_id not in _WORD_COUNTS:
-        eng = get_engine()
         _WORD_COUNTS[book_id] = {c["id"]: len(c["text"].split())
-                                 for c in eng.store.chunks if c["book_id"] == book_id}
+                                 for c in reader_chunks() if c["book_id"] == book_id}
     return _WORD_COUNTS[book_id]
 
 
 def book_annotations(book_id: str):
     """All annotations across every chunk of one book, for the reader's notes
-    rail (kept separate from the per-target /api/annotations the panel posts to)."""
+    rail (kept separate from the per-target annotations the panel posts to)."""
     items = [a for a in workspace.list_annotations(None)
              if a.get("target", "").split("#", 1)[0] == book_id]
     items.sort(key=lambda a: (a.get("target", ""), a.get("created", "")))
@@ -259,16 +279,11 @@ def book_annotations(book_id: str):
 
 
 # ---- Plateau: a deep-study page for a single passage ------------------------
-import re as _re
-
-PLATEAU_CACHE_PATH = config.INDEX_DIR / "cache_plateau.json"
-
-
 def _heuristic_graph(text: str):
     """A concept graph without an LLM: salient phrases as nodes, sentence
     co-occurrence as edges. The fallback so the Plateau is always populated."""
     from collections import Counter
-    from rhizome import concepts as C
+    from . import concepts as C
     grams = Counter(C._candidates(C._tokens(text)))
     ranked = [g for g, _ in grams.most_common(40)]
     picked = []
@@ -307,7 +322,7 @@ def plateau_payload(chunk_id: str, refresh: bool = False):
             return {"id": n["id"], "page": n.get("page"), "text": n["text"]}
         return None
 
-    from rhizome import enrich
+    from . import enrich
     cache = enrich._load_cache(PLATEAU_CACHE_PATH)
     h = enrich._hash(c["text"])
     study, source = cache.get(h), "cache"
@@ -336,7 +351,7 @@ def plateau_payload(chunk_id: str, refresh: bool = False):
     }
 
 
-# ---- the live run -----------------------------------------------------------
+# ---- the live exploration run (SSE emits are provided by the caller) --------
 def _emit_tokens(emit, eng, stage):
     """Stream this stage's token usage + the running cumulative total."""
     c = eng.client
@@ -397,6 +412,7 @@ def _struct_axis(eng, store, embed_key, seed_text, candidates):
 
 def run_explore(emit, *, theme=None, chunk_id=None, random=False,
                 k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED):
+    """Drive one exploration, pushing SSE events through ``emit(event, data)``."""
     eng = get_engine()
     if embed_key not in config.EMBED_MODELS or not config.embeddings_path(embed_key).exists():
         embed_key = config.DEFAULT_EMBED
@@ -522,320 +538,73 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False,
     emit("done", {})
 
 
-class Handler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
+def compare_models(*, mode="theme", value="", k=config.N_CANDIDATES, models=""):
+    """Run the SAME query through several embedding models (geometry only, no
+    LLM) so the UI can show how retrieval diverges by model."""
+    value = (value or "").strip()
+    keys = [m for m in (models or "").split(",") if m] or [
+        s["key"] for s in embeddings_status() if s["ready"]]
+    keys = [m for m in keys if config.embeddings_path(m).exists()]
+    if mode == "theme" and not value:
+        return {"error": "compare needs a theme value"}
 
-    def log_message(self, *a):  # quieter console
-        pass
-
-    def _json(self, obj, code=200):
-        body = json.dumps(obj).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _html(self, text, code=200):
-        body = text.encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")   # never serve a stale page
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    _CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-               ".js": "application/javascript; charset=utf-8",
-               ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml"}
-
-    def _reader_file(self, rel: str):
-        """Serve a static asset from frontend/reader/ (the reader app). Path is
-        sanitized so it can't escape the directory."""
-        rel = rel.strip("/")
-        target = (READER_DIR / rel).resolve()
-        if not str(target).startswith(str(READER_DIR.resolve())) or not target.is_file():
-            return self._json({"error": "not found"}, 404)
-        body = target.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", self._CTYPES.get(target.suffix, "application/octet-stream"))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        path = urlparse(self.path).path
-        q = parse_qs(urlparse(self.path).query)
-        if path in ("/", "/index.html"):
-            return self._html(INDEX_HTML.read_text(encoding="utf-8"))
-        if path in ("/reader", "/reader.html"):
-            return self._html(READER_HTML.read_text(encoding="utf-8"))
-        # --- whole-book reader app (frontend/reader/) ---
-        if path in ("/library", "/library.html"):
-            return self._reader_file("library.html")
-        if path in ("/book", "/book.html"):
-            return self._reader_file("book.html")
-        if path in ("/plateau", "/plateau.html"):
-            return self._reader_file("plateau.html")
-        if path.startswith("/reader/"):
-            return self._reader_file(path[len("/reader/"):])
-        if path in ("/chunkmap", "/chunkmap.html"):
-            cm = ROOT / "build" / "chunkmap.html"
-            if not cm.exists():
-                return self._html("<p>Chunk map not built. Run: "
-                                  "<code>python -m tools.chunkmap</code></p>", 404)
-            return self._html(cm.read_text(encoding="utf-8"))
-        if path in ("/conceptmap", "/conceptmap.html"):
-            cm = ROOT / "build" / "conceptmap.html"
-            if not cm.exists():
-                return self._html("<p>Concept map not built. Run: "
-                                  "<code>python -m rhizome.cli concepts &amp;&amp; "
-                                  "python -m rhizome.cli conceptmap</code></p>", 404)
-            return self._html(cm.read_text(encoding="utf-8"))
-        if path == "/api/passage":
-            cid = (q.get("id") or [""])[0]
-            data = passage_with_context(cid)
-            return self._json(data or {"error": "unknown chunk id"}, 200 if data else 404)
-        if path == "/api/books":
-            return self._json(books_index())
-        if path == "/api/book":
-            data = book_payload((q.get("id") or [""])[0])
-            return self._json(data or {"error": "unknown book id"}, 200 if data else 404)
-        if path == "/api/book_annotations":
-            return self._json(book_annotations((q.get("book") or [""])[0]))
-        if path == "/api/plateau":
-            data = plateau_payload((q.get("chunk") or [""])[0], refresh=bool(q.get("refresh")))
-            return self._json(data or {"error": "unknown chunk id"}, 200 if data else 404)
-        if path == "/api/annotations":
-            return self._json({"items": workspace.list_annotations(
-                (q.get("target") or [None])[0],
-                source=(q.get("source") or [None])[0],
-                passage_id=(q.get("passage_id") or [None])[0])})
-        if path == "/api/companion-notes":
-            return self._json({"items": workspace.list_companion_notes(
-                (q.get("passage_id") or [None])[0])})
-        if path == "/api/rhythm":
-            book = (q.get("book") or [""])[0]
-            return self._json(rhythm.compute(book, book_word_counts(book)) if book
-                              else {"error": "book required"}, 200 if book else 400)
-        if path == "/api/candidates":
-            book = (q.get("book") or [""])[0]
-            sess = (q.get("session") or [None])[0]
-            return self._json(rhythm.candidates(book, book_word_counts(book), sess) if book
-                              else {"error": "book required"}, 200 if book else 400)
-        if path == "/api/behavior/logged":
-            book = (q.get("book") or [""])[0]
-            return self._json(rhythm.logged_summary(book) if book else {"error": "book required"},
-                              200 if book else 400)
-        if path == "/api/chat":
-            return self._json({"messages": workspace.load_chat((q.get("target") or [""])[0])})
-        if path == "/api/sessions":
-            return self._json({"items": workspace.list_sessions()})
-        if path == "/api/session":
-            s = workspace.get_session((q.get("id") or [""])[0])
-            return self._json(s or {"error": "not found"}, 200 if s else 404)
-        if path == "/api/status":
-            cat = load_catalog()
-            info = llm.provider_info()
-            return self._json({
-                "index_ready": index_ready(),
-                "n_chunks": sum(1 for _ in config.CHUNKS_PATH.open()) if index_ready() else 0,
-                "books": [{"author": m.get("author"), "title": m.get("title")}
-                          for m in cat.values()],
-                "llm_enabled": info["enabled"],
-                "provider": info["provider"],
-                "providers": info.get("providers", []),
-                "model": info["model"],
-                "hint": info["hint"],
-                "embed_model": config.EMBED_MODEL,
+    results = []
+    for key in keys:
+        try:
+            store = get_store(key)
+            seed = _resolve_seed(
+                store, key,
+                theme=value if mode == "theme" else None,
+                chunk_id=value if mode == "chunk" else None,
+                random=(mode == "random"))
+            cands = store.connections(
+                seed["vec"], seed_book_id=seed["book_id"],
+                seed_author=seed["author"], k=k)
+            results.append({
+                "key": key, "label": config.EMBED_MODELS[key]["label"],
+                "dim": config.EMBED_MODELS[key]["dim"],
+                "items": [{"chunk_id": c["id"], "author": c.get("author") or "Unknown",
+                           "title": c.get("title") or c["book_id"], "page": c.get("page"),
+                           "rank": c.get("rank"), "similarity": c.get("similarity"),
+                           "text": c["text"][:240] + ("…" if len(c["text"]) > 240 else "")}
+                          for c in cands],
             })
-        if path == "/api/workflow":
-            return self._json({"stages": workflow()})
-        if path == "/api/embeddings":
-            return self._json({"models": embeddings_status()})
-        if path == "/api/eval":
-            return self._json(run_eval(refresh=bool(q.get("refresh"))))
-        if path == "/api/compare":
-            return self._compare(q)
-        if path == "/api/explore":
-            return self._sse_explore(parse_qs(urlparse(self.path).query))
-        return self._json({"error": "not found"}, 404)
-
-    def _read_json(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        if not length:
-            return {}
-        try:
-            return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-        except Exception:
-            return {}
-
-    def do_POST(self):
-        path = urlparse(self.path).path
-        body = self._read_json()
-        try:
-            if path == "/api/annotations":
-                # AI annotations carry a passage_id; default the legacy target to
-                # it so companion notes group with the passage they grew from.
-                target = body.get("target", "") or body.get("passage_id", "")
-                rec = workspace.add_annotation(
-                    target, body.get("kind", "note"),
-                    quote=body.get("quote", ""), note=body.get("note", ""),
-                    color=body.get("color", "amber"),
-                    source=body.get("source", "reader"),
-                    passage_id=body.get("passage_id", ""),
-                    msg_id=body.get("msg_id", ""),
-                    chat_target=body.get("chat_target", ""))
-                return self._json({"ok": True, "annotation": rec})
-            if path == "/api/annotations/delete":
-                ok = workspace.delete_annotation(body.get("id", ""))
-                return self._json({"ok": ok})
-            if path == "/api/chat":
-                return self._chat(body)
-            if path == "/api/session":
-                meta = workspace.save_session(body)
-                return self._json({"ok": True, **meta})
-            if path == "/api/session/delete":
-                ok = workspace.delete_session(body.get("id", ""))
-                return self._json({"ok": ok})
-            if path == "/api/behavior":
-                n = rhythm.append_events(body.get("book", ""), body.get("session", ""),
-                                         body.get("events", []) or [])
-                return self._json({"ok": True, "stored": n})
-            if path == "/api/behavior/clear":
-                ok = rhythm.clear_book(body.get("book", ""))
-                return self._json({"ok": ok})
-            if path == "/api/candidates/confirm":
-                return self._confirm_candidate(body)
         except Exception as e:
-            return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
-        return self._json({"error": "not found"}, 404)
-
-    def _confirm_candidate(self, body):
-        """Keep/Dismiss a candidate spark (R6b). Keep creates a real annotation
-        (source:'spark') the reader can build on, plus a positive label; Dismiss
-        records a negative label. Both feed the future personal model (R5)."""
-        book = body.get("book", "")
-        pid = body.get("passage_id", "")
-        action = body.get("action", "")
-        evidence = body.get("evidence", "")
-        if not pid or action not in ("keep", "dismiss"):
-            return self._json({"error": "passage_id and action (keep|dismiss) required"}, 400)
-        annotation = None
-        if action == "keep":
-            annotation = workspace.add_annotation(
-                pid, "note", note=f"Reading rhythm drew you here — {evidence}",
-                source="spark", passage_id=pid)
-        rhythm.add_label(book, pid, 1 if action == "keep" else 0, evidence)
-        return self._json({"ok": True, "annotation": annotation})
-
-    def _chat(self, body):
-        target = body.get("target", "")
-        message = (body.get("message") or "").strip()
-        context = body.get("context", "")
-        label = body.get("source_label", "")
-        if not message:
-            return self._json({"error": "empty message"}, 400)
-        eng = get_engine()
-        if eng.client is None:
-            return self._json({"error": "LLM not configured (set a provider key)."}, 503)
-        history = workspace.load_chat(target)
-        workspace.append_chat(target, "user", message)
-        reply = llm.chat(context, history, message, eng.client, source_label=label)
-        rec = workspace.append_chat(target, "assistant", reply)
-        usage = dict(getattr(eng.client, "last_usage", {}) or {})
-        return self._json({"reply": reply, "msg_id": rec["msg_id"], "usage": usage,
-                           "cumulative": getattr(eng.client, "total_usage", {}).get("total", 0)})
-
-    def _compare(self, q):
-        """Run the SAME query through several embedding models (geometry only, no
-        LLM) so the UI can show how retrieval diverges by model."""
-        mode = (q.get("mode") or ["theme"])[0]
-        value = (q.get("value") or [""])[0].strip()
-        k = int((q.get("candidates") or [config.N_CANDIDATES])[0])
-        want = (q.get("models") or [""])[0]
-        keys = [m for m in want.split(",") if m] or [
-            s["key"] for s in embeddings_status() if s["ready"]]
-        keys = [m for m in keys if config.embeddings_path(m).exists()]
-        if mode == "theme" and not value:
-            return self._json({"error": "compare needs a theme value"}, 400)
-
-        results = []
-        for key in keys:
-            try:
-                store = get_store(key)
-                seed = _resolve_seed(
-                    store, key,
-                    theme=value if mode == "theme" else None,
-                    chunk_id=value if mode == "chunk" else None,
-                    random=(mode == "random"))
-                cands = store.connections(
-                    seed["vec"], seed_book_id=seed["book_id"],
-                    seed_author=seed["author"], k=k)
-                results.append({
-                    "key": key, "label": config.EMBED_MODELS[key]["label"],
-                    "dim": config.EMBED_MODELS[key]["dim"],
-                    "items": [{"chunk_id": c["id"], "author": c.get("author") or "Unknown",
-                               "title": c.get("title") or c["book_id"], "page": c.get("page"),
-                               "rank": c.get("rank"), "similarity": c.get("similarity"),
-                               "text": c["text"][:240] + ("…" if len(c["text"]) > 240 else "")}
-                              for c in cands],
-                })
-            except Exception as e:
-                results.append({"key": key, "label": key, "error": f"{type(e).__name__}: {e}"})
-        return self._json({"mode": mode, "value": value, "k": k, "results": results})
-
-    def _sse_explore(self, q):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("X-Accel-Buffering", "no")     # defeat any proxy buffering
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.close_connection = True
-        # Open the stream immediately so the browser flips EventSource to OPEN
-        # and stops buffering — a comment line is ignored by the SSE parser.
-        self.wfile.write(b": ok\n\n")
-        self.wfile.flush()
-
-        def emit(event, data):
-            self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
-            self.wfile.flush()
-
-        try:
-            if not index_ready():
-                emit("error", {"text": "Index not built. Run: python -m rhizome.cli build"})
-                return
-            mode = (q.get("mode") or ["random"])[0]
-            k = int((q.get("candidates") or [config.N_CANDIDATES])[0])
-            value = (q.get("value") or [""])[0].strip()
-            embed_key = (q.get("embed") or [config.DEFAULT_EMBED])[0]
-            kwargs = {"k": k, "embed_key": embed_key}
-            if mode == "theme" and value:
-                kwargs["theme"] = value
-            elif mode == "chunk" and value:
-                kwargs["chunk_id"] = value
-            else:
-                kwargs["random"] = True
-            run_explore(emit, **kwargs)
-        except BrokenPipeError:
-            pass
-        except Exception as e:
-            try:
-                emit("error", {"text": f"{type(e).__name__}: {e}"})
-            except Exception:
-                pass
+            results.append({"key": key, "label": key, "error": f"{type(e).__name__}: {e}"})
+    return {"mode": mode, "value": value, "k": k, "results": results}
 
 
-def main(port=8000):
-    print(f"RhizomeDB frontend  →  http://localhost:{port}")
-    print("  (Ctrl-C to stop)")
-    if not index_ready():
-        print("  NOTE: index not built yet — run `python -m rhizome.cli build` first.")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+def chat_turn(target: str, message: str, context: str = "", source_label: str = ""):
+    """Append the user message, run the LLM, append + return the reply.
+
+    Returns a dict with an ``error`` key (and ``status``) when the message is
+    empty or no provider is configured, so the route can pick the HTTP code.
+    """
+    message = (message or "").strip()
+    if not message:
+        return {"error": "empty message", "status": 400}
+    eng = get_engine()
+    if eng.client is None:
+        return {"error": "LLM not configured (set a provider key).", "status": 503}
+    history = workspace.load_chat(target)
+    workspace.append_chat(target, "user", message)
+    reply = llm.chat(context, history, message, eng.client, source_label=source_label)
+    rec = workspace.append_chat(target, "assistant", reply)
+    usage = dict(getattr(eng.client, "last_usage", {}) or {})
+    return {"reply": reply, "msg_id": rec["msg_id"], "usage": usage,
+            "cumulative": getattr(eng.client, "total_usage", {}).get("total", 0)}
 
 
-if __name__ == "__main__":
-    import sys
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 8000)
+def confirm_candidate(book: str, passage_id: str, action: str, evidence: str = ""):
+    """Keep/Dismiss a candidate spark (R6b). Keep creates a real annotation
+    (source:'spark') the reader can build on, plus a positive label; Dismiss
+    records a negative label. Both feed the future personal model (R5)."""
+    if not passage_id or action not in ("keep", "dismiss"):
+        return {"error": "passage_id and action (keep|dismiss) required", "status": 400}
+    annotation = None
+    if action == "keep":
+        annotation = workspace.add_annotation(
+            passage_id, "note", note=f"Reading rhythm drew you here — {evidence}",
+            source="spark", passage_id=passage_id)
+    rhythm.add_label(book, passage_id, 1 if action == "keep" else 0, evidence)
+    return {"ok": True, "annotation": annotation}

@@ -27,6 +27,32 @@ def _wordcount(s: str) -> int:
     return len(s.split())
 
 
+def _attach_spine_offsets(chunks: list[dict], spine: str) -> None:
+    """Add character spans without changing chunk ids or text.
+
+    Chunks overlap, so the next search starts just after the previous chunk's
+    start (not its end).  Page markers may sit between paragraphs in the
+    converted Markdown; the span deliberately covers those source characters.
+    """
+    cursor = 0
+    for chunk in chunks:
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", chunk["text"])
+                      if p.strip()]
+        if not paragraphs:
+            continue
+        start = spine.find(paragraphs[0], cursor)
+        if start < 0:
+            start = spine.find(paragraphs[0])
+        if start < 0:
+            continue
+        end_start = spine.find(paragraphs[-1], start)
+        if end_start < 0:
+            continue
+        chunk["spine_start"] = start
+        chunk["spine_end"] = end_start + len(paragraphs[-1])
+        cursor = start + 1
+
+
 # --- chunk hygiene: drop front/back-matter & bibliographic apparatus --------
 _FRONTMATTER_SIGNALS = (
     "no part of this book", "all rights reserved", "library of congress",
@@ -160,6 +186,7 @@ def chunk_book(md_path, book_id: str, meta: dict) -> list[dict]:
                 "author": meta.get("author", ""), "title": meta.get("title", ""),
                 "heading": cur_heading, "page": start_page, "text": body,
             })
+    _attach_spine_offsets(chunks, text)
     chunk_book.last_dropped = dropped
     return chunks
 
@@ -181,6 +208,29 @@ def build_chunks() -> list[dict]:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
     print(f"Total: {len(all_chunks)} chunks -> {config.CHUNKS_PATH}")
     return all_chunks
+
+
+def backfill_spine_offsets() -> dict:
+    """Add/recompute R1 fields on an existing index without touching ids/order."""
+    chunks = load_chunks()
+    by_book: dict[str, list[dict]] = {}
+    for record in chunks:
+        by_book.setdefault(record["book_id"], []).append(record)
+    updated = missing = 0
+    for book_id, records in by_book.items():
+        paths = list(config.CONVERTED_DIR.rglob(f"{book_id}.md"))
+        if len(paths) != 1:
+            missing += len(records)
+            continue
+        spine = _strip_frontmatter(paths[0].read_text(encoding="utf-8"))
+        before = sum("spine_start" in r for r in records)
+        _attach_spine_offsets(records, spine)
+        updated += sum("spine_start" in r for r in records) - before
+        missing += sum("spine_start" not in r for r in records)
+    with config.CHUNKS_PATH.open("w", encoding="utf-8") as f:
+        for record in chunks:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return {"total": len(chunks), "updated": updated, "missing": missing}
 
 
 def load_chunks() -> list[dict]:
