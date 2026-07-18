@@ -1,0 +1,103 @@
+/* Design tokens — paper/ink, Fraunces (display) + Inter (body), light/dark.
+ *
+ * Adapted from the Drishtikone system named in PRD-reader-native §8. Fonts fall
+ * back to system serif/sans until the Fraunces/Inter woff2 files are vendored
+ * locally (no CDN, per the PRD); naming them now means dropping the files in is
+ * the only change needed. Every surface colour is a token so the reader, the
+ * rails, and the (fuzzy) "approximate" markers read as one system in both themes.
+ */
+:root {
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino,
+    "Georgia", serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+
+  /* paper / ink — light */
+  --paper: #faf6ee;
+  --paper-raised: #fffdf8;
+  --paper-sunken: #f2ebdd;
+  --ink: #26221c;
+  --ink-soft: #55503f;
+  --ink-faint: #8b8472;
+  --rule: #e4dcc9;
+  --rule-strong: #d2c7ad;
+
+  --accent: #9a5b2c; /* burnt sienna — the reading accent */
+  --accent-soft: #b9814f;
+  --accent-wash: #f0e2d1;
+
+  /* highlight kinds (schema colours; map to tags later, R5/§11) */
+  --hl-amber: #f4d98b;
+  --hl-rose: #f2b8b0;
+  --hl-sage: #bcd6ac;
+  --hl-sky: #a9cbe0;
+  --hl-violet: #cabce0;
+
+  --approx: #b98a2e; /* the "approximate anchor" marker (Aletheia honesty) */
+
+  --shadow-1: 0 1px 2px rgba(38, 34, 28, 0.06), 0 1px 3px rgba(38, 34, 28, 0.08);
+  --shadow-2: 0 4px 12px rgba(38, 34, 28, 0.1), 0 2px 4px rgba(38, 34, 28, 0.06);
+
+  --measure: 65ch;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --rail-w: 20rem;
+  --space: 1rem;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #17150f;
+    --paper-raised: #201d15;
+    --paper-sunken: #100e0a;
+    --ink: #ece5d4;
+    --ink-soft: #b8b19d;
+    --ink-faint: #837c68;
+    --rule: #322d20;
+    --rule-strong: #453e2c;
+
+    --accent: #d69a63;
+    --accent-soft: #b9814f;
+    --accent-wash: #2c2519;
+
+    --hl-amber: #7a6528;
+    --hl-rose: #7c4139;
+    --hl-sage: #47603a;
+    --hl-sky: #35566a;
+    --hl-violet: #4d3f66;
+
+    --approx: #d6ab55;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* explicit theme override wins over the media query in both directions,
+ * for a future in-app theme toggle. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --paper: #17150f;
+  --paper-raised: #201d15;
+  --paper-sunken: #100e0a;
+  --ink: #ece5d4;
+  --ink-soft: #b8b19d;
+  --ink-faint: #837c68;
+  --rule: #322d20;
+  --rule-strong: #453e2c;
+  --accent: #d69a63;
+  --accent-soft: #b9814f;
+  --accent-wash: #2c2519;
+  --hl-amber: #7a6528;
+  --hl-rose: #7c4139;
+  --hl-sage: #47603a;
+  --hl-sky: #35566a;
+  --hl-violet: #4d3f66;
+  --approx: #d6ab55;
+  color-scheme: dark;
+}
