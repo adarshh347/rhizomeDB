@@ -2,6 +2,7 @@
 // call is a one-liner over it. In dev, Vite proxies /api to the FastAPI server.
 import type {
   Annotation,
+  BookFormat,
   BookPayload,
   BookSummary,
   CreateAnnotationBody,
@@ -9,6 +10,14 @@ import type {
   ResolveResult,
   SpinePayload,
 } from "./types";
+
+export interface UploadResult {
+  book_id: string;
+  title: string;
+  author: string;
+  n_chunks: number;
+  formats: BookFormat[];
+}
 
 const BASE = "/api/v2";
 
@@ -68,4 +77,22 @@ export const api = {
     req<{ ok: boolean }>(`/annotations/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }),
+
+  // Multipart upload — let the browser set the boundary Content-Type, so this
+  // bypasses the JSON `req` helper.
+  uploadBook: async (file: File): Promise<UploadResult> => {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await fetch(`${BASE}/books/upload`, { method: "POST", body });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* non-JSON */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return res.json() as Promise<UploadResult>;
+  },
 };

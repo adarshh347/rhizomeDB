@@ -13,6 +13,58 @@
   margin: 0.4rem 0 0;
 }
 
+.dropzone {
+  margin: 1.75rem 0 0;
+  padding: 1.5rem 1.75rem;
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.dropzone:hover,
+.dropzone.over {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+.dropzone strong {
+  color: var(--accent);
+}
+.dropzone.busy {
+  cursor: progress;
+  border-style: solid;
+  border-color: var(--accent-soft);
+}
+.spinner {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.4em;
+  vertical-align: -0.1em;
+  border: 2px solid var(--accent-soft);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.upload-error {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--hl-rose) 40%, var(--paper-raised));
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
 .book-grid {
   list-style: none;
   padding: 0;

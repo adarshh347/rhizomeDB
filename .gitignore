@@ -16,3 +16,6 @@ build/
 
 # Generated renderer-test fixtures (scripts/make_sample_books.py)
 data/converted/samples/
+
+# Uploaded books (runtime user content, not part of the repo corpus)
+data/converted/uploads/

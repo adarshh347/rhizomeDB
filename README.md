@@ -133,6 +133,16 @@ faithful samples through the real pipeline:
 PYTHONPATH=. .venv/bin/python scripts/make_sample_books.py
 ```
 
+### Uploading a book
+
+Drop a PDF / EPUB / MOBI onto the library (or `POST /api/v2/books/upload`). It
+runs through the same convert → chunk → index pipeline (`rhizome/ingest.py`),
+lands under `books/uploads/` + `data/converted/uploads/` (both gitignored,
+runtime-only), and opens **natively and immediately** — a highlight anchors to
+the spine right away. It joins the *vector* index (for `explore`) only when
+embeddings are rebuilt; reading needs only the chunk index. MOBI is extracted to
+EPUB (Calibre's `ebook-convert` if present, else the pure-Python `mobi` lib).
+
 ## Tuning the connections
 
 All the geometry knobs live in `rhizome/config.py`:
