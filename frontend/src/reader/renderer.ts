@@ -30,6 +30,11 @@ export interface RendererProps {
   annotations: Annotation[];
   onSelect: (anchor: AnchorInput | null) => void;
   handleRef: React.MutableRefObject<RendererHandle | null>;
+  // The book→spine half of the R6 dial: a renderer calls this as the reader
+  // scrolls, naming the chunk now at the top of the reading area, so the spine
+  // panel can highlight where you are. Optional — a renderer that can't cheaply
+  // map its viewport to a chunk simply never calls it.
+  onVisibleChunk?: (chunkId: string | null) => void;
 }
 
 export const HL_COLORS = ["amber", "rose", "sage", "sky", "violet"];

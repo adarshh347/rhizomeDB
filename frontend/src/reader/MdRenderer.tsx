@@ -6,6 +6,14 @@ import { selectionToAnchor } from "./anchoring";
 import { type HighlightSpan, parseSpine } from "./spine";
 import { SpineView } from "./SpineView";
 import type { RendererProps } from "./renderer";
+import { useScrollSpy } from "./useScrollSpy";
+
+// Where the scroll-spy takes its reading: a line just below the reader bar,
+// down the centre of the text column. The extra probes ride past inter-block
+// margins (which return no offset-bearing span) to the next line of prose.
+const BAR = 56;
+const PROBE_LINES = [40, 84, 128];
+const NOOP = () => {};
 
 // MD renderer: the book drawn off its spine with an exact offset map. Selection
 // maps to a literal spine substring (quote/prefix/suffix sliced by offset);
@@ -17,6 +25,7 @@ export function MdRenderer({
   annotations,
   onSelect,
   handleRef,
+  onVisibleChunk,
   spineView = false,
 }: RendererProps & { spineView?: boolean }) {
   const [spine, setSpine] = useState<string | null>(null);
@@ -60,6 +69,30 @@ export function MdRenderer({
     [book],
   );
 
+  // Which chunk is at the top of the reading area right now: probe a trigger
+  // line (with a few fallbacks past margins), read the nearest span's spine
+  // offset, and resolve it to a chunk. O(1) — no walking the whole book.
+  const probeChunk = useCallback((): string | null => {
+    const surface = surfaceRef.current;
+    if (!surface) return null;
+    const box = surface.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const base = Math.max(box.top, BAR);
+    for (const gap of PROBE_LINES) {
+      const el = document.elementFromPoint(x, base + gap) as HTMLElement | null;
+      if (!el || !surface.contains(el)) continue;
+      const span =
+        (el.closest("[data-s]") as HTMLElement | null) ??
+        (el.querySelector?.("[data-s]") as HTMLElement | null);
+      if (span?.dataset.s != null) return chunkAt(Number(span.dataset.s));
+    }
+    return null;
+  }, [chunkAt]);
+
+  // Track only while the spine panel is showing — that's the only place the
+  // active chunk is visible, so there's no reason to probe during plain reading.
+  useScrollSpy(spineView && !!onVisibleChunk, probeChunk, onVisibleChunk ?? NOOP);
+
   const pulse = (el: Element, behavior: ScrollBehavior = "smooth") => {
     el.scrollIntoView({ behavior, block: "center" });
     el.classList.add("pulse");
@@ -93,27 +126,34 @@ export function MdRenderer({
     }, 0);
   }, [spine, onSelect]);
 
+  // The spine-annotated tree is expensive to build (a chunkAt() scan per block)
+  // and depends only on the text + highlights — never on the reading position.
+  // Memoize it so the scroll-spy's per-frame setActiveChunk (which re-renders
+  // this component) doesn't rebuild the whole book each frame and freeze the tab.
+  const annotated = useMemo(
+    () => (
+      <div className="spine-annotated">
+        {blocks.map((b, i) => {
+          const id = b.kind !== "page" ? chunkAt(b.start) : null;
+          return (
+            <div className="spine-row" key={i}>
+              {id && <span className="chunk-badge">{id.split("#")[1]}</span>}
+              <div className="spine-cell">
+                <SpineView blocks={[b]} highlights={highlights} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    ),
+    [blocks, highlights, chunkAt],
+  );
+
   if (!spine) return <div className="center-note">Loading the text…</div>;
 
   return (
     <article className="reading-surface" ref={surfaceRef} onMouseUp={onMouseUp}>
-      {spineView ? (
-        <div className="spine-annotated">
-          {blocks.map((b, i) => {
-            const id = b.kind !== "page" ? chunkAt(b.start) : null;
-            return (
-              <div className="spine-row" key={i}>
-                {id && <span className="chunk-badge">{id.split("#")[1]}</span>}
-                <div className="spine-cell">
-                  <SpineView blocks={[b]} highlights={highlights} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <SpineView blocks={blocks} highlights={highlights} />
-      )}
+      {spineView ? annotated : <SpineView blocks={blocks} highlights={highlights} />}
     </article>
   );
 }

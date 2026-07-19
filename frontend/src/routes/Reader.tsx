@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { api, ApiError } from "../api/client";
@@ -40,6 +40,14 @@ export function Reader() {
     setActiveChunk(chunk.id);
     handleRef.current?.locateChunk(chunk);
   };
+
+  // book→spine: the renderer reports the chunk at the reading position as you
+  // scroll. Ignore null probes (a gap between blocks) so the highlight holds
+  // steady rather than flickering off. Stable identity — the spy effect depends
+  // on it.
+  const onVisibleChunk = useCallback((id: string | null) => {
+    if (id) setActiveChunk(id);
+  }, []);
 
   // "Open in book" (R6, engineering → reading): ?chunk=<id> scrolls to that
   // chunk once the renderer has loaded its content.
@@ -137,6 +145,7 @@ export function Reader() {
     annotations: items,
     onSelect: setAnchor,
     handleRef,
+    onVisibleChunk,
   };
 
   return (
