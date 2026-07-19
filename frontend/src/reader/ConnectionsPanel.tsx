@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, X } from "lucide-react";
 
-import { useConnections } from "./useConnections";
+import type { ConnectionsState } from "./useConnections";
 import { Tip } from "./Tip";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -22,16 +22,17 @@ export function ConnectionsPanel({
   chunkId,
   fromLabel,
   onClose,
+  state,
 }: {
   chunkId: string;
   fromLabel: string;
   onClose: () => void;
+  state: ConnectionsState;
 }) {
-  const { seed, candidates, verdicts, exploration, notes, status, error } =
-    useConnections(chunkId);
+  const { seed, candidates, verdicts, exploration, notes, status, error } = state;
 
   return (
-    <aside className="rail connections-rail">
+    <section className="rail-panel connections-rail" aria-label="Connections">
       <div className="rail-head">
         <span className="section-label">Connections</span>
         <span className="spacer" />
@@ -126,6 +127,6 @@ export function ConnectionsPanel({
         </div>
       )}
       {seed?.embed_label && <p className="conn-embed">via {seed.embed_label}</p>}
-    </aside>
+    </section>
   );
 }

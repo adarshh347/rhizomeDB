@@ -30,7 +30,7 @@ export function NotesRail({
   const orphans = items.filter((a) => a.orphaned && a.quote);
 
   return (
-    <aside className="rail notes-rail">
+    <section className="rail-panel notes-rail" aria-label="Notes and highlights">
       <div className="rail-head">
         <span className="section-label">Notes &amp; highlights</span>
         <span className="count">{marks.length}</span>
@@ -107,7 +107,7 @@ export function NotesRail({
           </ul>
         </div>
       )}
-    </aside>
+    </section>
   );
 }
 

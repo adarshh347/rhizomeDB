@@ -13,17 +13,20 @@ export function SpinePanel({
   activeId,
   onOpen,
   onConnect,
+  active = true,
 }: {
   book: BookPayload;
   activeId?: string | null;
   onOpen: (chunk: Paragraph) => void;
   onConnect: (chunk: Paragraph) => void;
+  active?: boolean;
 }) {
   const activeRef = useRef<HTMLLIElement>(null);
 
   // Keep the active chunk (driven by the reader's scroll position) in view
   // inside the rail — nudging only the rail's own scrollTop, never the page.
   useEffect(() => {
+    if (!active) return;
     const li = activeRef.current;
     const rail = li?.closest(".rail") as HTMLElement | null;
     if (!li || !rail) return;
@@ -32,10 +35,10 @@ export function SpinePanel({
     if (lr.top < pr.top + 8 || lr.bottom > pr.bottom - 8) {
       rail.scrollTop += lr.top - pr.top - rail.clientHeight * 0.3;
     }
-  }, [activeId]);
+  }, [activeId, active]);
 
   return (
-    <aside className="rail spine-rail">
+    <section className="rail-panel spine-rail" aria-label="Spine chunks">
       <div className="rail-head">
         <span className="section-label">Spine · chunks</span>
         <span className="count">{book.paragraphs.length}</span>
@@ -80,6 +83,6 @@ export function SpinePanel({
           </li>
         ))}
       </ul>
-    </aside>
+    </section>
   );
 }

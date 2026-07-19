@@ -5,16 +5,15 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { api, ApiError } from "../api/client";
 import type { BookPayload, Paragraph } from "../api/types";
 import type { ImportResult } from "../api/client";
-import { ConnectionsPanel } from "../reader/ConnectionsPanel";
 import { EpubRenderer } from "../reader/EpubRenderer";
 import { ImportMenu } from "../reader/ImportMenu";
 import { MdRenderer } from "../reader/MdRenderer";
-import { NotesRail } from "../reader/NotesRail";
 import { PdfRenderer } from "../reader/PdfRenderer";
+import { ReaderRail, type RailMode } from "../reader/ReaderRail";
 import { SelectionToolbar } from "../reader/SelectionToolbar";
-import { SpinePanel } from "../reader/SpinePanel";
 import type { AnchorInput, RendererHandle } from "../reader/renderer";
 import { useAnnotations } from "../reader/useAnnotations";
+import { useConnections } from "../reader/useConnections";
 import "./reader.css";
 
 const FORMAT_LABEL: Record<string, string> = { pdf: "PDF", epub: "EPUB", md: "Text" };
@@ -30,6 +29,8 @@ export function Reader() {
   const [composing, setComposing] = useState<AnchorInput | null>(null);
   const [noteText, setNoteText] = useState("");
   const [spineView, setSpineView] = useState(false);
+  const [railMode, setRailMode] = useState<RailMode>("notes");
+  const [connectionReturnMode, setConnectionReturnMode] = useState<RailMode>("notes");
   const [connChunk, setConnChunk] = useState<string | null>(null);
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -37,6 +38,20 @@ export function Reader() {
   const noteRef = useRef<HTMLTextAreaElement>(null);
 
   const { items, create, remove, pin, dismiss, reload } = useAnnotations(bookId);
+  // The stream belongs to the Reader, above the tab panels. Mode switches only
+  // change what is visible; they never mount, cancel, duplicate, or restart SSE.
+  const connectionState = useConnections(connChunk);
+
+  const openConnections = (chunkId: string) => {
+    if (railMode !== "connections") setConnectionReturnMode(railMode);
+    setConnChunk(chunkId);
+    setRailMode("connections");
+  };
+
+  const closeConnections = () => {
+    setRailMode(connectionReturnMode === "connections" ? "notes" : connectionReturnMode);
+    setConnChunk(null);
+  };
 
   const openChunk = (chunk: Paragraph) => {
     setActiveChunk(chunk.id);
@@ -185,7 +200,12 @@ export function Reader() {
           <input
             type="checkbox"
             checked={spineView}
-            onChange={(e) => setSpineView(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setSpineView(checked);
+              if (checked) setRailMode("spine");
+              else if (railMode === "spine") setRailMode("notes");
+            }}
           />
           Spine
         </label>
@@ -196,32 +216,31 @@ export function Reader() {
         <div className="renderer-slot">
           {format === "pdf" && <PdfRenderer {...rendererProps} />}
           {format === "epub" && <EpubRenderer {...rendererProps} />}
-          {format === "md" && <MdRenderer {...rendererProps} spineView={spineView} />}
+          {format === "md" && (
+            <MdRenderer
+              {...rendererProps}
+              spineView={spineView}
+              trackSpine={railMode === "spine"}
+            />
+          )}
         </div>
 
-        {connChunk ? (
-          <ConnectionsPanel
-            chunkId={connChunk}
-            fromLabel={book.title}
-            onClose={() => setConnChunk(null)}
-          />
-        ) : spineView ? (
-          <SpinePanel
-            book={book}
-            activeId={activeChunk}
-            onOpen={openChunk}
-            onConnect={(c) => setConnChunk(c.id)}
-          />
-        ) : (
-          <NotesRail
-            items={items}
-            onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
-            onDelete={remove}
-            onPin={pin}
-            onDismiss={dismiss}
-            onConnect={(id) => setConnChunk(id)}
-          />
-        )}
+        <ReaderRail
+          mode={railMode}
+          onMode={setRailMode}
+          book={book}
+          items={items}
+          activeChunk={activeChunk}
+          connectionChunk={connChunk}
+          connectionState={connectionState}
+          onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
+          onDelete={remove}
+          onPin={pin}
+          onDismiss={dismiss}
+          onOpenChunk={openChunk}
+          onConnect={openConnections}
+          onCloseConnections={closeConnections}
+        />
       </div>
 
       {anchor && (

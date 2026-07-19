@@ -27,7 +27,8 @@ export function MdRenderer({
   handleRef,
   onVisibleChunk,
   spineView = false,
-}: RendererProps & { spineView?: boolean }) {
+  trackSpine = spineView,
+}: RendererProps & { spineView?: boolean; trackSpine?: boolean }) {
   const [spine, setSpine] = useState<string | null>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
 
@@ -92,7 +93,7 @@ export function MdRenderer({
 
   // Track only while the spine panel is showing — that's the only place the
   // active chunk is visible, so there's no reason to probe during plain reading.
-  useScrollSpy(spineView && !!onVisibleChunk, probeChunk, onVisibleChunk ?? NOOP);
+  useScrollSpy(trackSpine && !!onVisibleChunk, probeChunk, onVisibleChunk ?? NOOP);
 
   const pulse = (el: Element, behavior: ScrollBehavior = "smooth") => {
     el.scrollIntoView({ behavior, block: "center" });
