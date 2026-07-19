@@ -88,7 +88,8 @@ export function EpubRenderer({ bookId, annotations, onSelect, handleRef }: Rende
         body: {
           background: tok("--paper"),
           color: tok("--ink"),
-          "font-family": tok("--font-body"),
+          // the book reads in the reading serif, same as the MD surface
+          "font-family": tok("--font-reading"),
           "line-height": "1.7",
           padding: "1rem 1.5rem",
         },
@@ -180,14 +181,18 @@ export function EpubRenderer({ bookId, annotations, onSelect, handleRef }: Rende
 
   if (status === "error")
     return (
-      <div className="center-note">
+      <div className="center-note state-error" role="alert">
         <p>Couldn’t render the EPUB: {message}</p>
       </div>
     );
 
   return (
     <div className="epub-surface">
-      {status === "loading" && <div className="center-note">Opening the EPUB…</div>}
+      {status === "loading" && (
+        <div className="center-note state-loading" role="status">
+          <span className="spinner" aria-hidden /> Opening the EPUB…
+        </div>
+      )}
       <div className="epub-host" ref={hostRef} />
     </div>
   );

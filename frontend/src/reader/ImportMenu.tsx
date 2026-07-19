@@ -1,4 +1,7 @@
 import { useRef, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Dialog from "@radix-ui/react-dialog";
+import { ChevronDown } from "lucide-react";
 
 import { api, ApiError, type ImportResult } from "../api/client";
 import type { BookFormat } from "../api/types";
@@ -7,6 +10,8 @@ import type { BookFormat } from "../api/types";
 // a PDF; pasted Markdown/Obsidian notes for any book; a reader's exported
 // sidecar (KOReader .lua, Calibre/generic JSON, CSV). All flow through the one
 // resolver server-side, so results include how many anchored vs orphaned.
+// Menu = Radix DropdownMenu; the markdown composer = Radix Dialog (focus trap,
+// esc, scroll-lock, aria) skinned in paper/ink.
 export function ImportMenu({
   bookId,
   formats,
@@ -16,21 +21,21 @@ export function ImportMenu({
   formats: BookFormat[];
   onImported: (r: ImportResult) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
   const sidecarInput = useRef<HTMLInputElement>(null);
+  const mdRef = useRef<HTMLTextAreaElement>(null);
   const hasPdf = formats.some((f) => f.format === "pdf" && f.available);
 
   async function run(fn: () => Promise<ImportResult>) {
     setBusy(true);
     try {
       onImported(await fn());
-      setOpen(false);
       setMarkdown(null);
       setText("");
+      setAuto(false);
     } catch (e) {
       onImported({
         origin: "error",
@@ -46,38 +51,43 @@ export function ImportMenu({
   }
 
   return (
-    <div className="import-menu">
-      <button className="btn" onClick={() => setOpen((o) => !o)}>
-        Import ▾
-      </button>
-      {open && (
-        <div className="import-pop" onMouseLeave={() => setOpen(false)}>
-          <button
-            className="import-opt"
-            disabled={!hasPdf}
-            title={hasPdf ? "" : "This book has no PDF to read annotations from"}
-            onClick={() => run(() => api.importPdf(bookId))}
-          >
-            Embedded PDF highlights
+    <>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button className="btn import-trigger">
+            Import
+            <ChevronDown size={14} strokeWidth={2} aria-hidden />
           </button>
-          <button
-            className="import-opt"
-            onClick={() => {
-              setMarkdown("");
-              setOpen(false);
-            }}
-          >
-            Markdown / Obsidian notes…
-          </button>
-          <button
-            className="import-opt"
-            title="KOReader .lua, Calibre/generic JSON, or CSV"
-            onClick={() => sidecarInput.current?.click()}
-          >
-            EPUB reader sidecar…
-          </button>
-        </div>
-      )}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="rz-menu" align="end" sideOffset={6}>
+            <DropdownMenu.Item
+              className="rz-menu-item"
+              disabled={!hasPdf}
+              onSelect={() => run(() => api.importPdf(bookId))}
+            >
+              Embedded PDF highlights
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              className="rz-menu-item"
+              onSelect={() => {
+                setText("");
+                setAuto(false);
+                setMarkdown("");
+              }}
+            >
+              Markdown / Obsidian notes…
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              className="rz-menu-item"
+              // defer past the menu's focus-return so the file dialog opens cleanly
+              onSelect={() => setTimeout(() => sidecarInput.current?.click(), 0)}
+            >
+              EPUB reader sidecar…
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
 
       <input
         ref={sidecarInput}
@@ -87,28 +97,39 @@ export function ImportMenu({
         onChange={(e) => {
           const file = e.target.files?.[0];
           e.target.value = ""; // let the same file be picked again
-          if (file) {
-            setOpen(false);
-            run(() => api.importSidecar(bookId, file));
-          }
+          if (file) run(() => api.importSidecar(bookId, file));
         }}
       />
 
-      {markdown !== null && (
-        <div className="composer-back" onClick={() => setMarkdown(null)}>
-          <div className="composer" onClick={(e) => e.stopPropagation()}>
-            <div className="composer-head">
+      <Dialog.Root
+        open={markdown !== null}
+        onOpenChange={(o) => {
+          if (!o) setMarkdown(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="rz-overlay" />
+          <Dialog.Content
+            className="rz-dialog"
+            aria-describedby={undefined}
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              mdRef.current?.focus();
+            }}
+          >
+            <Dialog.Title className="section-label">Import markdown notes</Dialog.Title>
+            <p className="dialog-help">
               Paste notes — <code>==highlights==</code> and <code>&gt;</code>{" "}
               blockquotes (an optional line after a quote becomes its note).
-            </div>
+            </p>
             <textarea
-              autoFocus
-              className="md-import"
+              ref={mdRef}
+              className="field code"
               placeholder="==a highlighted phrase==&#10;&#10;> a quoted passage&#10;— my note on it"
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
-            <label className="md-auto" title="Match these quotes against the whole library instead of this book">
+            <label className="md-auto">
               <input
                 type="checkbox"
                 checked={auto}
@@ -117,9 +138,9 @@ export function ImportMenu({
               Auto-detect the book (match the whole library)
             </label>
             <div className="composer-actions">
-              <button className="btn" onClick={() => setMarkdown(null)}>
-                Cancel
-              </button>
+              <Dialog.Close asChild>
+                <button className="btn">Cancel</button>
+              </Dialog.Close>
               <button
                 className="btn primary"
                 disabled={busy || !text.trim()}
@@ -128,9 +149,9 @@ export function ImportMenu({
                 {busy ? "Importing…" : auto ? "Detect & import" : "Import"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
   );
 }

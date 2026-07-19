@@ -19,12 +19,6 @@ export interface BookSummary {
   formats: BookFormat[];
 }
 
-export interface TocEntry {
-  heading: string;
-  id: string;
-  page: number | null;
-}
-
 export interface Paragraph {
   id: string; // chunk id — the annotation target/join key
   heading: string | null;
@@ -42,7 +36,6 @@ export interface BookPayload {
   author: string;
   year: number | null;
   n_chunks: number;
-  toc: TocEntry[];
   paragraphs: Paragraph[];
   formats: BookFormat[];
   default_format: string;

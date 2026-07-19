@@ -2,8 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
+import "./styles/fonts.css";
 import "./styles/tokens.css";
 import "./styles/global.css";
+import "./styles/primitives.css";
 
 import { App } from "./App";
 import { Library } from "./routes/Library";

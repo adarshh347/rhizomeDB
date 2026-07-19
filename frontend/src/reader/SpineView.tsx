@@ -13,6 +13,8 @@ function renderSegment(seg: Segment, key: number) {
   const cls = [
     seg.mark ? "hl" : "",
     seg.mark?.approximate ? "approx" : "",
+    seg.mark?.hasNote ? "has-note" : "",
+    seg.mark?.startsHere ? "mark-start" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -27,11 +29,19 @@ function renderSegment(seg: Segment, key: number) {
       className={cls || undefined}
       style={style}
       data-aid={seg.mark?.id}
+      data-honesty={seg.mark?.startsHere && seg.mark.approximate ? "approximate" : undefined}
+      title={seg.mark?.startsHere && seg.mark.note ? `Note: ${seg.mark.note}` : undefined}
     >
       {inner}
     </Tag>
   );
 }
+
+// A converter's figure-omission marker ("⇒ picture [W x H] intentionally
+// omitted ⇐") is machine residue, not prose — it gets a quiet caption class.
+// Only the paragraph's className changes; the runs (and their data-s offsets)
+// render exactly as for any paragraph, so anchoring is untouched.
+const FIGURE_RE = /^(?:⇒|==>)\s*picture\b.*intentionally omitted\s*(?:⇐|<==)$/;
 
 function BlockView({ block, highlights }: { block: Block; highlights: HighlightSpan[] }) {
   if (block.kind === "page") {
@@ -47,7 +57,9 @@ function BlockView({ block, highlights }: { block: Block; highlights: HighlightS
     const H = `h${Math.min(block.level + 1, 6)}` as keyof React.JSX.IntrinsicElements;
     return <H className={`spine-h spine-h${block.level}`}>{children}</H>;
   }
-  return <p className="spine-p">{children}</p>;
+  const text = block.runs.map((r) => r.text).join("").trim();
+  const figure = FIGURE_RE.test(text);
+  return <p className={`spine-p${figure ? " spine-figure" : ""}`}>{children}</p>;
 }
 
 export function SpineView({

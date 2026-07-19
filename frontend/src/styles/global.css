@@ -44,6 +44,18 @@ button {
   font: inherit;
   cursor: pointer;
 }
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* One accessible focus ring for every interactive element (keyboard only —
+ * :focus-visible already excludes mouse focus). Foundation was missing this. */
+:focus-visible {
+  outline: var(--ring-width) solid var(--ring-color);
+  outline-offset: var(--ring-offset);
+  border-radius: 4px;
+}
 
 ::selection {
   background: var(--accent-wash);
@@ -113,6 +125,11 @@ button {
 .btn.primary:hover {
   background: var(--accent-soft);
 }
+.btn:disabled,
+.btn-ghost:disabled {
+  opacity: 0.42;
+  pointer-events: none;
+}
 
 .center-note {
   max-width: 40ch;
@@ -120,10 +137,53 @@ button {
   text-align: center;
   color: var(--ink-soft);
 }
+.state-loading {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+.state-error {
+  color: var(--ink);
+}
+.state-error::before {
+  content: "";
+  display: block;
+  width: var(--space-5);
+  height: 2px;
+  margin: 0 auto var(--space-3);
+  background: var(--hl-rose);
+}
+.state-empty {
+  color: var(--ink-faint);
+}
 .center-note code {
   font-family: var(--font-mono);
   background: var(--paper-sunken);
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
   font-size: 0.85em;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+  .btn,
+  .btn-ghost,
+  .book-card,
+  .dropzone,
+  .row,
+  .rail-tab {
+    transition: none !important;
+  }
 }

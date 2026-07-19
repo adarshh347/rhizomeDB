@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { api, ApiError } from "../api/client";
 import type { BookPayload, Paragraph } from "../api/types";
 import type { ImportResult } from "../api/client";
-import { ConnectionsPanel } from "../reader/ConnectionsPanel";
 import { EpubRenderer } from "../reader/EpubRenderer";
 import { ImportMenu } from "../reader/ImportMenu";
 import { MdRenderer } from "../reader/MdRenderer";
-import { NotesRail } from "../reader/NotesRail";
 import { PdfRenderer } from "../reader/PdfRenderer";
+import { ReaderRail, type RailMode } from "../reader/ReaderRail";
 import { SelectionToolbar } from "../reader/SelectionToolbar";
-import { SpinePanel } from "../reader/SpinePanel";
 import type { AnchorInput, RendererHandle } from "../reader/renderer";
 import { useAnnotations } from "../reader/useAnnotations";
+import { useConnections } from "../reader/useConnections";
 import "./reader.css";
 
 const FORMAT_LABEL: Record<string, string> = { pdf: "PDF", epub: "EPUB", md: "Text" };
@@ -29,12 +29,46 @@ export function Reader() {
   const [composing, setComposing] = useState<AnchorInput | null>(null);
   const [noteText, setNoteText] = useState("");
   const [spineView, setSpineView] = useState(false);
+  const [railMode, setRailMode] = useState<RailMode>("notes");
+  const [connectionReturnMode, setConnectionReturnMode] = useState<RailMode>("notes");
+  const [railOpen, setRailOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const [connChunk, setConnChunk] = useState<string | null>(null);
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const handleRef = useRef<RendererHandle | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   const { items, create, remove, pin, dismiss, reload } = useAnnotations(bookId);
+  // The stream belongs to the Reader, above the tab panels. Mode switches only
+  // change what is visible; they never mount, cancel, duplicate, or restart SSE.
+  const connectionState = useConnections(connChunk);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  const showRail = (mode: RailMode) => {
+    setRailMode(mode);
+    if (isNarrow) setRailOpen(true);
+  };
+
+  const openConnections = (chunkId: string) => {
+    if (railMode !== "connections") setConnectionReturnMode(railMode);
+    setConnChunk(chunkId);
+    setRailMode("connections");
+    if (isNarrow) setRailOpen(true);
+  };
+
+  const closeConnections = () => {
+    setRailMode(connectionReturnMode === "connections" ? "notes" : connectionReturnMode);
+    setConnChunk(null);
+    if (isNarrow) setRailOpen(false);
+  };
 
   const openChunk = (chunk: Paragraph) => {
     setActiveChunk(chunk.id);
@@ -138,14 +172,19 @@ export function Reader() {
 
   if (error)
     return (
-      <div className="center-note">
+      <div className="center-note state-error" role="alert">
         <p>Couldn’t open this book: {error}</p>
         <p>
           <Link to="/">← back to the library</Link>
         </p>
       </div>
     );
-  if (!book) return <div className="center-note">Opening the book…</div>;
+  if (!book)
+    return (
+      <div className="center-note state-loading" role="status">
+        <span className="spinner" aria-hidden /> Opening the book…
+      </div>
+    );
 
   const rendererProps = {
     bookId,
@@ -183,44 +222,88 @@ export function Reader() {
           <input
             type="checkbox"
             checked={spineView}
-            onChange={(e) => setSpineView(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setSpineView(checked);
+              if (checked) setRailMode("spine");
+              else if (railMode === "spine") setRailMode("notes");
+            }}
           />
           Spine
         </label>
         <ImportMenu bookId={bookId} formats={book.formats} onImported={onImported} />
+        <div className="mobile-rail-triggers" aria-label="Open reader context">
+          <button className="btn-ghost" onClick={() => showRail("notes")}>Notes</button>
+          <button className="btn-ghost" onClick={() => showRail("spine")}>Spine</button>
+          <button
+            className="btn-ghost"
+            disabled={!connChunk}
+            onClick={() => showRail("connections")}
+          >
+            Connections
+          </button>
+        </div>
       </div>
 
       <div className="reader-body">
         <div className="renderer-slot">
           {format === "pdf" && <PdfRenderer {...rendererProps} />}
           {format === "epub" && <EpubRenderer {...rendererProps} />}
-          {format === "md" && <MdRenderer {...rendererProps} spineView={spineView} />}
+          {format === "md" && (
+            <MdRenderer
+              {...rendererProps}
+              spineView={spineView}
+              trackSpine={railMode === "spine"}
+            />
+          )}
         </div>
 
-        {connChunk ? (
-          <ConnectionsPanel
-            chunkId={connChunk}
-            fromLabel={book.title}
-            onClose={() => setConnChunk(null)}
-          />
-        ) : spineView ? (
-          <SpinePanel
+        {!isNarrow && (
+          <ReaderRail
+            mode={railMode}
+            onMode={setRailMode}
             book={book}
-            activeId={activeChunk}
-            onOpen={openChunk}
-            onConnect={(c) => setConnChunk(c.id)}
-          />
-        ) : (
-          <NotesRail
             items={items}
+            activeChunk={activeChunk}
+            connectionChunk={connChunk}
+            connectionState={connectionState}
             onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
             onDelete={remove}
             onPin={pin}
             onDismiss={dismiss}
-            onConnect={(id) => setConnChunk(id)}
+            onOpenChunk={openChunk}
+            onConnect={openConnections}
+            onCloseConnections={closeConnections}
           />
         )}
       </div>
+
+      {isNarrow && (
+        <Dialog.Root open={railOpen} onOpenChange={setRailOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="rz-overlay rail-drawer-overlay" />
+            <Dialog.Content className="rail-drawer" aria-describedby={undefined}>
+              <Dialog.Title className="sr-only">Reader context</Dialog.Title>
+              <ReaderRail
+                mode={railMode}
+                onMode={setRailMode}
+                book={book}
+                items={items}
+                activeChunk={activeChunk}
+                connectionChunk={connChunk}
+                connectionState={connectionState}
+                onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
+                onDelete={remove}
+                onPin={pin}
+                onDismiss={dismiss}
+                onOpenChunk={openChunk}
+                onConnect={openConnections}
+                onCloseConnections={closeConnections}
+              />
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}
 
       {anchor && (
         <SelectionToolbar
@@ -238,40 +321,59 @@ export function Reader() {
 
       {flash && <div className="reader-flash">{flash}</div>}
 
-      {composing && (
-        <div className="composer-back" onClick={() => setComposing(null)}>
-          <div className="composer" onClick={(e) => e.stopPropagation()}>
-            <div className="composer-quote">“{composing.quote}”</div>
-            <textarea
-              autoFocus
-              placeholder="Your note…"
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  doCreate(composing, noteText.trim());
-                  setComposing(null);
-                }
-                if (e.key === "Escape") setComposing(null);
-              }}
-            />
-            <div className="composer-actions">
-              <button className="btn" onClick={() => setComposing(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                onClick={() => {
-                  doCreate(composing, noteText.trim());
-                  setComposing(null);
-                }}
-              >
-                Save note
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog.Root
+        open={!!composing}
+        onOpenChange={(o) => {
+          if (!o) setComposing(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="rz-overlay" />
+          <Dialog.Content
+            className="rz-dialog dialog-note"
+            aria-describedby={undefined}
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              noteRef.current?.focus();
+            }}
+          >
+            <Dialog.Title className="section-label">New note</Dialog.Title>
+            {composing && (
+              <>
+                <blockquote className="quote-block">“{composing.quote}”</blockquote>
+                <textarea
+                  ref={noteRef}
+                  className="field"
+                  placeholder="Your note…"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => {
+                    // ⌘/Ctrl+Enter saves; Esc is handled by the dialog itself.
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      doCreate(composing, noteText.trim());
+                      setComposing(null);
+                    }
+                  }}
+                />
+                <div className="composer-actions">
+                  <Dialog.Close asChild>
+                    <button className="btn">Cancel</button>
+                  </Dialog.Close>
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      doCreate(composing, noteText.trim());
+                      setComposing(null);
+                    }}
+                  >
+                    Save note
+                  </button>
+                </div>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

@@ -115,7 +115,14 @@ export interface Segment {
   text: string;
   em?: boolean;
   strong?: boolean;
-  mark?: { id: string; color: string; approximate: boolean };
+  mark?: {
+    id: string;
+    color: string;
+    approximate: boolean;
+    hasNote: boolean;
+    note?: string;
+    startsHere: boolean;
+  };
 }
 
 export interface HighlightSpan {
@@ -124,6 +131,7 @@ export interface HighlightSpan {
   spine_end: number;
   color: string;
   approximate: boolean;
+  note?: string;
 }
 
 // Split a block's runs at highlight boundaries so each returned segment is
@@ -154,7 +162,14 @@ export function segmentsFor(runs: Run[], highlights: HighlightSpan[]): Segment[]
         em: run.em,
         strong: run.strong,
         mark: hit
-          ? { id: hit.id, color: hit.color, approximate: hit.approximate }
+          ? {
+              id: hit.id,
+              color: hit.color,
+              approximate: hit.approximate,
+              hasNote: !!hit.note,
+              note: hit.note,
+              startsHere: segStart === hit.spine_start,
+            }
           : undefined,
       });
     }

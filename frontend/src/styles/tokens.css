@@ -1,103 +1,104 @@
-/* Design tokens — paper/ink, Fraunces (display) + Inter (body), light/dark.
+/* Design tokens — paper/ink, Fraunces (display) · Inter (UI/prose) · JetBrains
+ * Mono (machine metadata). Adapted from the Drishtikone system (PRD §8).
  *
- * Adapted from the Drishtikone system named in PRD-reader-native §8. Fonts fall
- * back to system serif/sans until the Fraunces/Inter woff2 files are vendored
- * locally (no CDN, per the PRD); naming them now means dropping the files in is
- * the only change needed. Every surface colour is a token so the reader, the
- * rails, and the (fuzzy) "approximate" markers read as one system in both themes.
+ * Theming: every colour is declared ONCE via `light-dark()`, resolved by the
+ * element's `color-scheme`. `:root` follows the OS (`light dark`); the in-app
+ * toggle sets `[data-theme]`, which flips `color-scheme` and therefore every
+ * token — no duplicated dark block to drift. Fonts are vendored locally as
+ * WOFF2 (see styles/fonts.css + public/fonts); no CDN, per the PRD.
  */
 :root {
+  color-scheme: light dark;
+
+  /* ---- type families ---- */
   --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino,
+    "Georgia", serif;
+  /* The book itself (Plane 1) reads in a serif: Fraunces' variable default is
+   * its text optical size, so the same vendored file serves display headings
+   * and long-form reading; the fallbacks are genuine book faces. UI chrome
+   * stays in Inter — the planes must not blur. */
+  --font-reading: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino,
     "Georgia", serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
 
-  /* paper / ink — light */
-  --paper: #faf6ee;
-  --paper-raised: #fffdf8;
-  --paper-sunken: #f2ebdd;
-  --ink: #26221c;
-  --ink-soft: #55503f;
-  --ink-faint: #8b8472;
-  --rule: #e4dcc9;
-  --rule-strong: #d2c7ad;
+  /* ---- type scale (one ramp) ---- */
+  --text-xs: 0.75rem; /* 12 — dense metadata */
+  --text-sm: 0.8125rem; /* 13 — secondary UI */
+  --text-ui: 0.9375rem; /* 15 — default UI/body chrome */
+  --text-reading: 1.15rem; /* 18.4 — long-form reading */
+  --text-lg: 1.25rem; /* 20 — small heading */
+  --text-xl: 1.6rem; /* 25.6 — section/book heading */
+  --text-2xl: 2rem; /* 32 — page title */
 
-  --accent: #9a5b2c; /* burnt sienna — the reading accent */
-  --accent-soft: #b9814f;
-  --accent-wash: #f0e2d1;
+  --leading-tight: 1.2;
+  --leading-ui: 1.4;
+  --leading-reading: 1.7;
 
-  /* highlight kinds (schema colours; map to tags later, R5/§11) */
-  --hl-amber: #f4d98b;
-  --hl-rose: #f2b8b0;
-  --hl-sage: #bcd6ac;
-  --hl-sky: #a9cbe0;
-  --hl-violet: #cabce0;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
 
-  --approx: #b98a2e; /* the "approximate anchor" marker (Aletheia honesty) */
+  /* ---- spacing scale (4px base) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --space: var(--space-4); /* back-compat alias for the old single token */
 
-  --shadow-1: 0 1px 2px rgba(38, 34, 28, 0.06), 0 1px 3px rgba(38, 34, 28, 0.08);
-  --shadow-2: 0 4px 12px rgba(38, 34, 28, 0.1), 0 2px 4px rgba(38, 34, 28, 0.06);
-
-  --measure: 65ch;
-  --radius: 8px;
+  /* ---- radius / geometry ---- */
   --radius-sm: 5px;
+  --radius: 8px;
+  --radius-lg: 12px; /* sheets / large overlays */
+  --measure: 65ch;
   --rail-w: 20rem;
-  --space: 1rem;
+  --header-h: 3.1rem; /* topbar height — was a magic number in reader.css */
 
-  color-scheme: light dark;
+  /* ---- paper / ink (one value each, theme via light-dark) ---- */
+  --paper: light-dark(#faf6ee, #17150f);
+  --paper-raised: light-dark(#fffdf8, #201d15);
+  --paper-sunken: light-dark(#f2ebdd, #100e0a);
+  --ink: light-dark(#26221c, #ece5d4);
+  --ink-soft: light-dark(#55503f, #b8b19d);
+  --ink-faint: light-dark(#8b8472, #837c68);
+  --rule: light-dark(#e4dcc9, #322d20);
+  --rule-strong: light-dark(#d2c7ad, #453e2c);
+  --rule-hair: light-dark(#efe8d8, #262117); /* separators — lighter than --rule */
+
+  --accent: light-dark(#9a5b2c, #d69a63); /* burnt sienna */
+  --accent-soft: light-dark(#b9814f, #b9814f);
+  --accent-wash: light-dark(#f0e2d1, #2c2519);
+
+  /* highlight kinds */
+  --hl-amber: light-dark(#f4d98b, #7a6528);
+  --hl-rose: light-dark(#f2b8b0, #7c4139);
+  --hl-sage: light-dark(#bcd6ac, #47603a);
+  --hl-sky: light-dark(#a9cbe0, #35566a);
+  --hl-violet: light-dark(#cabce0, #4d3f66);
+
+  --approx: light-dark(#b98a2e, #d6ab55); /* "approximate anchor" marker */
+
+  /* ---- focus ring (one, applied on :focus-visible) ---- */
+  --ring-width: 2px;
+  --ring-offset: 2px;
+  --ring-color: var(--accent);
+
+  /* ---- elevation (two only) — colour via light-dark, one definition each ---- */
+  --shadow-1: 0 1px 2px light-dark(rgba(38, 34, 28, 0.06), rgba(0, 0, 0, 0.3)),
+    0 1px 3px light-dark(rgba(38, 34, 28, 0.08), rgba(0, 0, 0, 0.4));
+  --shadow-2: 0 4px 12px light-dark(rgba(38, 34, 28, 0.1), rgba(0, 0, 0, 0.45)),
+    0 2px 4px light-dark(rgba(38, 34, 28, 0.06), rgba(0, 0, 0, 0.3));
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #17150f;
-    --paper-raised: #201d15;
-    --paper-sunken: #100e0a;
-    --ink: #ece5d4;
-    --ink-soft: #b8b19d;
-    --ink-faint: #837c68;
-    --rule: #322d20;
-    --rule-strong: #453e2c;
-
-    --accent: #d69a63;
-    --accent-soft: #b9814f;
-    --accent-wash: #2c2519;
-
-    --hl-amber: #7a6528;
-    --hl-rose: #7c4139;
-    --hl-sage: #47603a;
-    --hl-sky: #35566a;
-    --hl-violet: #4d3f66;
-
-    --approx: #d6ab55;
-
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
-    --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
-  }
-}
-
-/* explicit theme override wins over the media query in both directions,
- * for a future in-app theme toggle. */
+/* The in-app toggle drives theme by flipping color-scheme; light-dark() above
+ * resolves every token accordingly. Auto = no attribute = follow the OS. */
 :root[data-theme="light"] {
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --paper: #17150f;
-  --paper-raised: #201d15;
-  --paper-sunken: #100e0a;
-  --ink: #ece5d4;
-  --ink-soft: #b8b19d;
-  --ink-faint: #837c68;
-  --rule: #322d20;
-  --rule-strong: #453e2c;
-  --accent: #d69a63;
-  --accent-soft: #b9814f;
-  --accent-wash: #2c2519;
-  --hl-amber: #7a6528;
-  --hl-rose: #7c4139;
-  --hl-sage: #47603a;
-  --hl-sky: #35566a;
-  --hl-violet: #4d3f66;
-  --approx: #d6ab55;
   color-scheme: dark;
 }

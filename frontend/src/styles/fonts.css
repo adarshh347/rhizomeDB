@@ -1,0 +1,57 @@
+/* Self-hosted WOFF2 (no CDN, per the PRD). Files + SIL OFL licenses live in
+ * public/fonts/ and are served locally at /fonts/*. Only the weights/styles the
+ * UI actually uses are vendored:
+ *   Fraunces  — variable weight, roman        → editorial/display headings
+ *   Inter     — 400 / 500 / 600 + 400 italic  → interface + supporting prose
+ *   JetBrains Mono — 400                       → ids, offsets, scores, metadata
+ * `font-display: swap` shows fallback text immediately, then swaps (no FOIT);
+ * fallback stacks in tokens.css are metrically close to limit reflow.
+ */
+
+/* Fraunces — variable (wght), roman */
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/fraunces-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+/* Inter — static weights actually used */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-latin-400-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-latin-600-normal.woff2") format("woff2");
+}
+
+/* JetBrains Mono — 400 */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}

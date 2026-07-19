@@ -50,7 +50,13 @@ export function PdfRenderer({ bookId, annotations, onSelect, handleRef }: Render
         for (let n = 1; n <= doc.numPages; n++) {
           if (cancelled) return;
           const page = await doc.getPage(n);
-          const viewport = page.getViewport({ scale: SCALE });
+          const natural = page.getViewport({ scale: 1 });
+          // Fit the whole native page inside the available reading width. The
+          // canvas and text layer are rendered at the same scale, preserving
+          // PDF colour fidelity, selection geometry, and locator quads.
+          const available = Math.max(320, host.clientWidth - 32);
+          const renderScale = Math.min(SCALE, available / natural.width);
+          const viewport = page.getViewport({ scale: renderScale });
 
           const pageEl = document.createElement("div");
           pageEl.className = "pdf-page";
@@ -66,7 +72,7 @@ export function PdfRenderer({ bookId, annotations, onSelect, handleRef }: Render
 
           const textDiv = document.createElement("div");
           textDiv.className = "pdf-textlayer";
-          textDiv.style.setProperty("--scale-factor", String(SCALE));
+          textDiv.style.setProperty("--scale-factor", String(renderScale));
           pageEl.appendChild(textDiv);
           host.appendChild(pageEl);
 
@@ -179,14 +185,18 @@ export function PdfRenderer({ bookId, annotations, onSelect, handleRef }: Render
 
   if (status === "error")
     return (
-      <div className="center-note">
+      <div className="center-note state-error" role="alert">
         <p>Couldn’t render the PDF: {message}</p>
       </div>
     );
 
   return (
     <div className="pdf-surface">
-      {status === "loading" && <div className="center-note">Rendering the PDF…</div>}
+      {status === "loading" && (
+        <div className="center-note state-loading" role="status">
+          <span className="spinner" aria-hidden /> Rendering the PDF…
+        </div>
+      )}
       <div className="pdf-pages" ref={hostRef} />
     </div>
   );

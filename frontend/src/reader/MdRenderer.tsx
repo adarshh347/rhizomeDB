@@ -27,7 +27,8 @@ export function MdRenderer({
   handleRef,
   onVisibleChunk,
   spineView = false,
-}: RendererProps & { spineView?: boolean }) {
+  trackSpine = spineView,
+}: RendererProps & { spineView?: boolean; trackSpine?: boolean }) {
   const [spine, setSpine] = useState<string | null>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +50,7 @@ export function MdRenderer({
         spine_end: pos.spine_end,
         color: a.color || "amber",
         approximate: !!a.selector?.approximate,
+        note: a.note || undefined,
       });
     }
     return spans;
@@ -91,7 +93,7 @@ export function MdRenderer({
 
   // Track only while the spine panel is showing — that's the only place the
   // active chunk is visible, so there's no reason to probe during plain reading.
-  useScrollSpy(spineView && !!onVisibleChunk, probeChunk, onVisibleChunk ?? NOOP);
+  useScrollSpy(trackSpine && !!onVisibleChunk, probeChunk, onVisibleChunk ?? NOOP);
 
   const pulse = (el: Element, behavior: ScrollBehavior = "smooth") => {
     el.scrollIntoView({ behavior, block: "center" });
@@ -149,7 +151,12 @@ export function MdRenderer({
     [blocks, highlights, chunkAt],
   );
 
-  if (!spine) return <div className="center-note">Loading the text…</div>;
+  if (!spine)
+    return (
+      <div className="center-note state-loading" role="status">
+        <span className="spinner" aria-hidden /> Loading the text…
+      </div>
+    );
 
   return (
     <article className="reading-surface" ref={surfaceRef} onMouseUp={onMouseUp}>
