@@ -2,7 +2,7 @@
 // the selection toolbar, the notes rail and the resolve→create→paint flow are
 // shared. A renderer's only format-specific jobs are: draw the book, turn a
 // selection into an AnchorInput, and paint stored annotations back.
-import type { Annotation, BookPayload } from "../api/types";
+import type { Annotation, BookPayload, Paragraph } from "../api/types";
 
 // What a selection yields, ready for /anchors resolution. `quote/prefix/suffix`
 // go to the one resolver (quote is authoritative); `locator` is the format's
@@ -16,13 +16,20 @@ export interface AnchorInput {
   rect: DOMRect;
 }
 
+// The imperative handle a renderer registers so the shell can drive it: jump to
+// a stored mark, or locate a chunk in the native view (the reading⇄engineering
+// dial of R6 — "open in book" lands here for every format).
+export interface RendererHandle {
+  jumpToAnnotation: (ann: Annotation) => void;
+  locateChunk: (chunk: Paragraph) => void;
+}
+
 export interface RendererProps {
   bookId: string;
   book: BookPayload;
   annotations: Annotation[];
   onSelect: (anchor: AnchorInput | null) => void;
-  // Renderers register a jump handler here so the rail can scroll to a mark.
-  jumpRef: React.MutableRefObject<((ann: Annotation) => void) | null>;
+  handleRef: React.MutableRefObject<RendererHandle | null>;
 }
 
 export const HL_COLORS = ["amber", "rose", "sage", "sky", "violet"];

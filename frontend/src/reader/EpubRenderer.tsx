@@ -21,7 +21,7 @@ const FILL: Record<string, string> = {
 // quote/prefix/suffix (for the one resolver) plus a native {cfi} locator;
 // stored highlights paint through Rendition.annotations at their CFI. The book
 // iframe is themed from the app's paper/ink tokens so it reads as one surface.
-export function EpubRenderer({ bookId, annotations, onSelect, jumpRef }: RendererProps) {
+export function EpubRenderer({ bookId, annotations, onSelect, handleRef }: RendererProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const rendRef = useRef<Rendition | null>(null);
   const paintedRef = useRef<Set<string>>(new Set());
@@ -136,7 +136,7 @@ export function EpubRenderer({ bookId, annotations, onSelect, jumpRef }: Rendere
         rendition.annotations.highlight(
           cfi,
           { id: a.id },
-          () => jumpRef.current?.(a),
+          () => handleRef.current?.jumpToAnnotation(a),
           "",
           {
             fill: FILL[a.color] || FILL.amber,
@@ -151,9 +151,31 @@ export function EpubRenderer({ bookId, annotations, onSelect, jumpRef }: Rendere
     }
   }, [annotations, status, ready]);
 
-  jumpRef.current = (a: Annotation) => {
-    const cfi = (a.selector?.locator as { cfi?: string } | undefined)?.cfi;
-    if (cfi) rendRef.current?.display(cfi);
+  handleRef.current = {
+    jumpToAnnotation: (a: Annotation) => {
+      const cfi = (a.selector?.locator as { cfi?: string } | undefined)?.cfi;
+      if (cfi) rendRef.current?.display(cfi);
+    },
+    // Locate a chunk by searching the rendered book for its opening text.
+    locateChunk: (chunk) => {
+      const needle = chunk.text.slice(0, 40).replace(/\s+/g, " ").trim();
+      const host = hostRef.current;
+      if (!needle || !host) return;
+      for (const iframe of host.querySelectorAll("iframe")) {
+        const doc = iframe.contentDocument;
+        if (!doc) continue;
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          if ((node.textContent ?? "").replace(/\s+/g, " ").includes(needle)) {
+            (node.parentElement as HTMLElement | null)?.scrollIntoView({
+              block: "center",
+            });
+            return;
+          }
+        }
+      }
+    },
   };
 
   if (status === "error")

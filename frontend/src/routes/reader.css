@@ -561,6 +561,95 @@ mark.hl.pulse {
   margin-top: 0.8rem;
 }
 
+/* spine panel — the navigable chunk index (R6) */
+.spine-panel {
+  width: var(--rail-w);
+  flex-shrink: 0;
+  align-self: stretch;
+  border-left: 1px solid var(--rule);
+  padding: 1.5rem 1rem;
+  position: sticky;
+  top: 3.1rem;
+  max-height: calc(100vh - 3.1rem);
+  overflow-y: auto;
+  background: var(--paper);
+}
+.chunk-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.chunk-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--paper-raised);
+  padding: 0.5rem 0.6rem;
+  color: var(--ink);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.chunk-row:hover {
+  border-color: var(--accent-soft);
+  background: var(--paper-sunken);
+}
+.chunk-row.active {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.chunk-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.chunk-id {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+}
+.chunk-heading {
+  font-size: 0.78rem;
+  color: var(--ink);
+  font-weight: 600;
+}
+.chunk-page {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+}
+.chunk-span {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  color: var(--ink-faint);
+}
+.chunk-preview {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.pdf-page.pulse {
+  animation: pagePulse 1.2s ease;
+}
+@keyframes pagePulse {
+  0%,
+  100% {
+    box-shadow: var(--shadow-2);
+  }
+  30% {
+    box-shadow: 0 0 0 3px var(--accent), var(--shadow-2);
+  }
+}
+
 /* spine view — the engineering layer revealed */
 .spine-annotated .spine-row {
   display: flex;

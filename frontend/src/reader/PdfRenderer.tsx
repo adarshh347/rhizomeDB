@@ -20,7 +20,7 @@ interface PageInfo {
 // their offset into the page text. A selection becomes quote/prefix/suffix (for
 // the one resolver) plus a native locator {page, quads} (normalised 0..1 of the
 // page box, so highlights survive re-render) painted as absolute divs.
-export function PdfRenderer({ bookId, annotations, onSelect, jumpRef }: RendererProps) {
+export function PdfRenderer({ bookId, annotations, onSelect, handleRef }: RendererProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<PageInfo[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -153,13 +153,28 @@ export function PdfRenderer({ bookId, annotations, onSelect, jumpRef }: Renderer
     }
   }, [annotations, version]);
 
-  jumpRef.current = (a: Annotation) => {
-    const el = hostRef.current?.querySelector(`.pdf-hl[data-aid="${a.id}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("pulse");
-      setTimeout(() => el.classList.remove("pulse"), 1200);
-    }
+  const pulse = (el: Element, behavior: ScrollBehavior = "smooth") => {
+    el.scrollIntoView({ behavior, block: "center" });
+    el.classList.add("pulse");
+    setTimeout(() => el.classList.remove("pulse"), 1200);
+  };
+
+  handleRef.current = {
+    jumpToAnnotation: (a: Annotation) => {
+      const el = hostRef.current?.querySelector(`.pdf-hl[data-aid="${a.id}"]`);
+      if (el) pulse(el);
+    },
+    // Locate a chunk by finding its opening text in a page's text layer.
+    locateChunk: (chunk) => {
+      const needle = chunk.text.slice(0, 40).replace(/\s+/g, " ").trim();
+      if (!needle) return;
+      for (const page of pagesRef.current) {
+        if (page.text.replace(/\s+/g, " ").includes(needle)) {
+          pulse(page.el, "auto");
+          return;
+        }
+      }
+    },
   };
 
   if (status === "error")
