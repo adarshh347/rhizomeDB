@@ -113,6 +113,26 @@ match is weak or ambiguous — a wrong note is worse than a missing one.
 It works in geometry-only mode without a key; set `ANTHROPIC_API_KEY` (or a
 Gemini/Groq key) to light up judging, synthesis, chat, and the Plateau study map.
 
+### Native renderers
+
+A book renders in its original format when its source file is present under
+`books/` (PDF via **PDF.js**, EPUB via **epub.js** — both vendored through npm,
+no CDN), and always as **Markdown off the spine** otherwise. The format switch
+lives in the reader bar; every renderer shares one selection toolbar, notes
+rail, and resolver, so a highlight in any format anchors to the spine, records a
+format-native locator (PDF `{page, quads}` · EPUB `{cfi}` · MD spine offsets),
+and lands in the same `annotations.jsonl`. `npm install` copies PDF.js's
+standard-font + cmap data into `frontend/public/pdfjs/` (postinstall) so base-14
+and non-Latin PDFs render locally.
+
+The corpus source files live in R2 (`books/` is gitignored). To exercise the
+PDF/EPUB renderers on a fresh checkout without them, generate a couple of
+faithful samples through the real pipeline:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/make_sample_books.py
+```
+
 ## Tuning the connections
 
 All the geometry knobs live in `rhizome/config.py`:

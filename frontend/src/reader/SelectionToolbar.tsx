@@ -1,10 +1,8 @@
-import type { Anchor } from "./anchoring";
+import { type AnchorInput, HL_COLORS } from "./renderer";
 
-const COLORS = ["amber", "rose", "sage", "sky", "violet"];
-
-// The floating toolbar that appears over a live selection. Identical surface
-// for every renderer (PRD §8) — for MD it's the only one; PDF/EPUB will mount
-// the same component. Highlight applies immediately; Note opens a composer.
+// The floating toolbar over a live selection — identical for every renderer
+// (PRD §8). Positioned `fixed` from the selection's viewport rect, so it works
+// the same over the MD surface, the PDF text layer, and the EPUB iframe.
 export function SelectionToolbar({
   anchor,
   color,
@@ -12,22 +10,22 @@ export function SelectionToolbar({
   onHighlight,
   onNote,
 }: {
-  anchor: Anchor;
+  anchor: AnchorInput;
   color: string;
   onColor: (c: string) => void;
   onHighlight: () => void;
   onNote: () => void;
 }) {
-  const top = anchor.rect.top + window.scrollY - 46;
-  const left = anchor.rect.left + window.scrollX + anchor.rect.width / 2;
+  const top = Math.max(8, anchor.rect.top - 46);
+  const left = anchor.rect.left + anchor.rect.width / 2;
   return (
     <div
       className="sel-toolbar"
-      style={{ top, left }}
+      style={{ position: "fixed", top, left }}
       onMouseDown={(e) => e.preventDefault() /* keep the selection alive */}
     >
       <div className="swatches">
-        {COLORS.map((c) => (
+        {HL_COLORS.map((c) => (
           <button
             key={c}
             className={`swatch ${c === color ? "on" : ""}`}
