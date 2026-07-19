@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -285,6 +285,21 @@ def import_markdown(body: MarkdownImport):
         return imports.import_markdown(body.book_id, body.text)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@app.post(f"{V2}/import/sidecar")
+async def import_sidecar(book_id: str = Form(...), file: UploadFile = File(...)):
+    """Import an EPUB reader's sidecar (KOReader .lua, Calibre/generic JSON, or
+    CSV) against a book (R10). Format is sniffed from the file."""
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "file too large (max 120 MB)")
+    try:
+        return imports.import_epub_sidecar(book_id, file.filename or "sidecar", data)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, f"could not parse sidecar: {exc}") from exc
 
 
 @app.get(f"{V2}/orphans")

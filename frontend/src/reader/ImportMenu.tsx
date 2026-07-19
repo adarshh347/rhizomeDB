@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { api, ApiError, type ImportResult } from "../api/client";
 import type { BookFormat } from "../api/types";
 
 // Bring in annotations made elsewhere. Embedded PDF highlights when the book has
-// a PDF; pasted Markdown/Obsidian notes for any book. Both flow through the one
+// a PDF; pasted Markdown/Obsidian notes for any book; a reader's exported
+// sidecar (KOReader .lua, Calibre/generic JSON, CSV). All flow through the one
 // resolver server-side, so results include how many anchored vs orphaned.
 export function ImportMenu({
   bookId,
@@ -19,6 +20,7 @@ export function ImportMenu({
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const sidecarInput = useRef<HTMLInputElement>(null);
   const hasPdf = formats.some((f) => f.format === "pdf" && f.available);
 
   async function run(fn: () => Promise<ImportResult>) {
@@ -66,8 +68,30 @@ export function ImportMenu({
           >
             Markdown / Obsidian notes…
           </button>
+          <button
+            className="import-opt"
+            title="KOReader .lua, Calibre/generic JSON, or CSV"
+            onClick={() => sidecarInput.current?.click()}
+          >
+            EPUB reader sidecar…
+          </button>
         </div>
       )}
+
+      <input
+        ref={sidecarInput}
+        type="file"
+        accept=".lua,.json,.csv,.txt"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // let the same file be picked again
+          if (file) {
+            setOpen(false);
+            run(() => api.importSidecar(bookId, file));
+          }
+        }}
+      />
 
       {markdown !== null && (
         <div className="composer-back" onClick={() => setMarkdown(null)}>
