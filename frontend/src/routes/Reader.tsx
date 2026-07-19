@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { api, ApiError } from "../api/client";
 import type { BookPayload, Paragraph } from "../api/types";
@@ -33,6 +34,7 @@ export function Reader() {
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const handleRef = useRef<RendererHandle | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   const { items, create, remove, pin, dismiss, reload } = useAnnotations(bookId);
 
@@ -238,40 +240,59 @@ export function Reader() {
 
       {flash && <div className="reader-flash">{flash}</div>}
 
-      {composing && (
-        <div className="composer-back" onClick={() => setComposing(null)}>
-          <div className="composer" onClick={(e) => e.stopPropagation()}>
-            <div className="composer-quote">“{composing.quote}”</div>
-            <textarea
-              autoFocus
-              placeholder="Your note…"
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  doCreate(composing, noteText.trim());
-                  setComposing(null);
-                }
-                if (e.key === "Escape") setComposing(null);
-              }}
-            />
-            <div className="composer-actions">
-              <button className="btn" onClick={() => setComposing(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                onClick={() => {
-                  doCreate(composing, noteText.trim());
-                  setComposing(null);
-                }}
-              >
-                Save note
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog.Root
+        open={!!composing}
+        onOpenChange={(o) => {
+          if (!o) setComposing(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="rz-overlay" />
+          <Dialog.Content
+            className="rz-dialog dialog-note"
+            aria-describedby={undefined}
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              noteRef.current?.focus();
+            }}
+          >
+            <Dialog.Title className="section-label">New note</Dialog.Title>
+            {composing && (
+              <>
+                <blockquote className="quote-block">“{composing.quote}”</blockquote>
+                <textarea
+                  ref={noteRef}
+                  className="field"
+                  placeholder="Your note…"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => {
+                    // ⌘/Ctrl+Enter saves; Esc is handled by the dialog itself.
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      doCreate(composing, noteText.trim());
+                      setComposing(null);
+                    }
+                  }}
+                />
+                <div className="composer-actions">
+                  <Dialog.Close asChild>
+                    <button className="btn">Cancel</button>
+                  </Dialog.Close>
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      doCreate(composing, noteText.trim());
+                      setComposing(null);
+                    }}
+                  >
+                    Save note
+                  </button>
+                </div>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
