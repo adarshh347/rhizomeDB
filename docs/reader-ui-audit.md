@@ -328,7 +328,20 @@ Each = its own commit; `tsc`+build clean; visual + contract checks; no PR until 
 
 **6 · States & polish** — *Custom:* loading/empty/error/disabled/focus sweep; **PDF page framing** via surrounding canvas colour/edge/restrained shadow/centering/fit-width (**no canvas recolor/tint/filter** — page fidelity preserved); motion; dark pass. Lucide icons throughout.
 
-**Deferred, separately gated (post-checkpoint):** wide-screen **marginalia** (custom; MD-first; requires rich local fixtures; must handle collision/stacking/long-notes/intermediate-widths/rail-sync; no PDF/EPUB parity claim without fixtures) · react-resizable-panels · TanStack Virtual (Spine panel, profile-gated) · unified/remark (rejected).
+**Remaining deferred work:** react-resizable-panels · TanStack Virtual (Spine
+panel, profile-gated) · unified/remark (rejected).
+
+## Post-checkpoint enhancement — wide-screen marginalia
+
+Implemented after Increments 1–6 on the Markdown renderer only. At a real
+`min-width: 1500px` breakpoint, anchored marks surface in a reserved left gutter;
+below that breakpoint the marginalia component does not mount and the Notes rail
+remains the complete fallback. Notes measure their painted `<mark>` anchors and
+their own rendered heights, stack with collision gaps, and reflow when a long
+note expands. Activating a gutter note selects and reveals the same Notes-rail
+row. The enhancement leaves `SpineView` runs and `[data-s]` offsets unchanged and
+is disabled in the spine-annotated view. PDF and EPUB intentionally have no
+marginalia implementation or parity claim.
 
 ---
 

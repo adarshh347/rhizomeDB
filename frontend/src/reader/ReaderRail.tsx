@@ -23,6 +23,7 @@ export function ReaderRail({
   onOpenChunk,
   onConnect,
   onCloseConnections,
+  activeAnnotation,
 }: {
   mode: RailMode;
   onMode: (mode: RailMode) => void;
@@ -38,6 +39,7 @@ export function ReaderRail({
   onOpenChunk: (chunk: Paragraph) => void;
   onConnect: (chunkId: string) => void;
   onCloseConnections: () => void;
+  activeAnnotation?: string | null;
 }) {
   return (
     <Tabs.Root className="rail" value={mode} onValueChange={(value) => onMode(value as RailMode)}>
@@ -56,6 +58,7 @@ export function ReaderRail({
           onPin={onPin}
           onDismiss={onDismiss}
           onConnect={onConnect}
+          activeId={activeAnnotation}
         />
       </Tabs.Content>
       <Tabs.Content className="rail-tab-panel" value="spine" forceMount>
