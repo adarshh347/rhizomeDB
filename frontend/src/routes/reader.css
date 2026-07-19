@@ -43,6 +43,9 @@
   user-select: none;
   cursor: pointer;
 }
+.mobile-rail-triggers {
+  display: none;
+}
 
 .reader-body {
   display: flex;
@@ -175,6 +178,7 @@
   margin: 0 0 var(--space-4);
   hanging-punctuation: first;
   text-wrap: pretty;
+  overflow-wrap: anywhere;
 }
 /* a converter's figure-omission marker — machine residue, not prose. Rendered
    as a quiet mono caption so the reading plane stays a book. The runs inside
@@ -288,10 +292,9 @@ mark.hl.pulse {
   }
 }
 
-/* selection toolbar (Floating UI positioning arrives in a later increment) */
+/* Selection toolbar: a genuine transient overlay, collision-positioned by
+   Floating UI from the renderer's existing viewport rect. */
 .sel-toolbar {
-  position: absolute;
-  transform: translateX(-50%);
   z-index: 40;
   display: flex;
   align-items: center;
@@ -443,21 +446,78 @@ mark.hl.pulse {
   margin-top: 0;
 }
 
-/* Narrow-screen restacking is refined in the responsive increment; this keeps
-   every rail (not just notes) from overflowing until then. */
 @media (max-width: 900px) {
-  .reader-body {
-    flex-direction: column;
+  .reader-bar {
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+  }
+  .reader-title {
+    min-width: 0;
+    flex: 1;
+  }
+  .reader-title .rt-title,
+  .reader-title .rt-author {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .reader-bar > .spacer {
+    display: none;
+  }
+  .mobile-rail-triggers {
+    order: 3;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid var(--rule-hair);
+    padding-top: var(--space-2);
+  }
+  .mobile-rail-triggers .btn-ghost:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .reader-body,
+  .renderer-slot {
+    width: 100%;
+    min-width: 0;
   }
   .reading-surface {
     padding: var(--space-5) var(--space-4) var(--space-8);
+    width: 100%;
     max-width: 100%;
   }
-  .rail {
+  .epub-host {
     width: 100%;
-    border-left: none;
-    border-top: 1px solid var(--rule);
-    position: static;
-    max-height: none;
   }
+  .pdf-pages {
+    padding-inline: var(--space-2);
+  }
+  /* On narrow screens the selection actions become a reachable bottom bar;
+     the same handlers and colour choices remain in place. */
+  .sel-toolbar {
+    position: fixed !important;
+    inset: auto var(--space-3) var(--space-3) var(--space-3) !important;
+    transform: none !important;
+    justify-content: center;
+    padding: var(--space-2) var(--space-3);
+  }
+  /* Composer/import dialogs become task-focused sheets at the bottom. Their
+     border and shadow communicate transient modal containment. */
+  .rz-dialog {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: min(86vh, 42rem);
+    transform: none;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-width: 1px 0 0;
+    animation-name: sheet-in;
+  }
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(1.5rem); opacity: 0; }
 }

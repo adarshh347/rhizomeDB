@@ -31,6 +31,8 @@ export function Reader() {
   const [spineView, setSpineView] = useState(false);
   const [railMode, setRailMode] = useState<RailMode>("notes");
   const [connectionReturnMode, setConnectionReturnMode] = useState<RailMode>("notes");
+  const [railOpen, setRailOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const [connChunk, setConnChunk] = useState<string | null>(null);
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -42,15 +44,30 @@ export function Reader() {
   // change what is visible; they never mount, cancel, duplicate, or restart SSE.
   const connectionState = useConnections(connChunk);
 
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  const showRail = (mode: RailMode) => {
+    setRailMode(mode);
+    if (isNarrow) setRailOpen(true);
+  };
+
   const openConnections = (chunkId: string) => {
     if (railMode !== "connections") setConnectionReturnMode(railMode);
     setConnChunk(chunkId);
     setRailMode("connections");
+    if (isNarrow) setRailOpen(true);
   };
 
   const closeConnections = () => {
     setRailMode(connectionReturnMode === "connections" ? "notes" : connectionReturnMode);
     setConnChunk(null);
+    if (isNarrow) setRailOpen(false);
   };
 
   const openChunk = (chunk: Paragraph) => {
@@ -210,6 +227,17 @@ export function Reader() {
           Spine
         </label>
         <ImportMenu bookId={bookId} formats={book.formats} onImported={onImported} />
+        <div className="mobile-rail-triggers" aria-label="Open reader context">
+          <button className="btn-ghost" onClick={() => showRail("notes")}>Notes</button>
+          <button className="btn-ghost" onClick={() => showRail("spine")}>Spine</button>
+          <button
+            className="btn-ghost"
+            disabled={!connChunk}
+            onClick={() => showRail("connections")}
+          >
+            Connections
+          </button>
+        </div>
       </div>
 
       <div className="reader-body">
@@ -225,23 +253,52 @@ export function Reader() {
           )}
         </div>
 
-        <ReaderRail
-          mode={railMode}
-          onMode={setRailMode}
-          book={book}
-          items={items}
-          activeChunk={activeChunk}
-          connectionChunk={connChunk}
-          connectionState={connectionState}
-          onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
-          onDelete={remove}
-          onPin={pin}
-          onDismiss={dismiss}
-          onOpenChunk={openChunk}
-          onConnect={openConnections}
-          onCloseConnections={closeConnections}
-        />
+        {!isNarrow && (
+          <ReaderRail
+            mode={railMode}
+            onMode={setRailMode}
+            book={book}
+            items={items}
+            activeChunk={activeChunk}
+            connectionChunk={connChunk}
+            connectionState={connectionState}
+            onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
+            onDelete={remove}
+            onPin={pin}
+            onDismiss={dismiss}
+            onOpenChunk={openChunk}
+            onConnect={openConnections}
+            onCloseConnections={closeConnections}
+          />
+        )}
       </div>
+
+      {isNarrow && (
+        <Dialog.Root open={railOpen} onOpenChange={setRailOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="rz-overlay rail-drawer-overlay" />
+            <Dialog.Content className="rail-drawer" aria-describedby={undefined}>
+              <Dialog.Title className="sr-only">Reader context</Dialog.Title>
+              <ReaderRail
+                mode={railMode}
+                onMode={setRailMode}
+                book={book}
+                items={items}
+                activeChunk={activeChunk}
+                connectionChunk={connChunk}
+                connectionState={connectionState}
+                onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
+                onDelete={remove}
+                onPin={pin}
+                onDismiss={dismiss}
+                onOpenChunk={openChunk}
+                onConnect={openConnections}
+                onCloseConnections={closeConnections}
+              />
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}
 
       {anchor && (
         <SelectionToolbar

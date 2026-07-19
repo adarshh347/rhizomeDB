@@ -167,6 +167,31 @@ textarea.field {
   flex-direction: column;
   gap: var(--space-3);
 }
+
+/* The mobile rail is a modal drawer: its border, backdrop, and elevation
+ * express temporary interaction containment, not passive card decoration. */
+.rail-drawer {
+  position: fixed;
+  z-index: 61;
+  inset: 0 0 0 auto;
+  width: min(24rem, 100vw);
+  background: var(--paper);
+  border-left: 1px solid var(--rule-strong);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: drawer-in 0.2s ease;
+}
+.rail-drawer .rail {
+  position: static;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border-left: none;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(1.5rem); opacity: 0; }
+}
 .dialog-note {
   width: min(30rem, calc(100vw - 2rem));
 }
@@ -625,5 +650,17 @@ button.row:hover,
   .rz-menu,
   .rz-tooltip {
     animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .rail-drawer {
+    inset: auto 0 0;
+    width: 100%;
+    height: min(82vh, 44rem);
+    border-left: none;
+    border-top: 1px solid var(--rule-strong);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    animation-name: sheet-in;
   }
 }

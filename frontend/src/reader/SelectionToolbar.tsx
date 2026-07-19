@@ -1,3 +1,6 @@
+import { flip, offset, shift, useFloating } from "@floating-ui/react";
+import { useLayoutEffect, useMemo } from "react";
+
 import { type AnchorInput, HL_COLORS } from "./renderer";
 
 // The floating toolbar over a live selection — identical for every renderer
@@ -16,12 +19,26 @@ export function SelectionToolbar({
   onHighlight: () => void;
   onNote: () => void;
 }) {
-  const top = Math.max(8, anchor.rect.top - 46);
-  const left = anchor.rect.left + anchor.rect.width / 2;
+  const virtualReference = useMemo(
+    () => ({ getBoundingClientRect: () => anchor.rect }),
+    [anchor.rect],
+  );
+  const { refs, floatingStyles, placement } = useFloating({
+    strategy: "fixed",
+    placement: "top",
+    middleware: [offset(8), flip({ padding: 8 }), shift({ padding: 8 })],
+  });
+
+  useLayoutEffect(() => {
+    refs.setReference(virtualReference);
+  }, [refs, virtualReference]);
+
   return (
     <div
       className="sel-toolbar"
-      style={{ position: "fixed", top, left }}
+      ref={refs.setFloating}
+      style={floatingStyles}
+      data-placement={placement}
       onMouseDown={(e) => e.preventDefault() /* keep the selection alive */}
     >
       <div className="swatches">
