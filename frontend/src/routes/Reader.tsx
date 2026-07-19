@@ -172,14 +172,19 @@ export function Reader() {
 
   if (error)
     return (
-      <div className="center-note">
+      <div className="center-note state-error" role="alert">
         <p>Couldn’t open this book: {error}</p>
         <p>
           <Link to="/">← back to the library</Link>
         </p>
       </div>
     );
-  if (!book) return <div className="center-note">Opening the book…</div>;
+  if (!book)
+    return (
+      <div className="center-note state-loading" role="status">
+        <span className="spinner" aria-hidden /> Opening the book…
+      </div>
+    );
 
   const rendererProps = {
     bookId,

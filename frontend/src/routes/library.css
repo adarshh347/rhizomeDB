@@ -14,6 +14,8 @@
 }
 
 .dropzone {
+  /* A drop target is genuine interactive containment: its dashed boundary
+     communicates exactly where a native book file may be released. */
   margin: 1.75rem 0 0;
   padding: 1.5rem 1.75rem;
   border: 1.5px dashed var(--rule-strong);
@@ -56,32 +58,32 @@
   margin: 2rem 0 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 1rem;
+  column-gap: var(--space-6);
+  row-gap: 0;
 }
 
 .book-card {
   display: block;
   position: relative;
   height: 100%;
-  padding: 1.25rem 1.25rem 1.1rem;
-  background: var(--paper-raised);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
+  padding: var(--space-5) var(--space-1);
+  background: transparent;
+  border-bottom: 1px solid var(--rule-hair);
   color: var(--ink);
-  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  transition: background 0.14s ease, color 0.14s ease;
 }
 .book-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-2);
-  border-color: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-wash) 45%, transparent);
   text-decoration: none;
+}
+.book-card:focus-visible {
+  background: var(--accent-wash);
 }
 
 .book-fmt {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: var(--space-5);
+  right: var(--space-1);
   font-family: var(--font-mono);
   font-size: 0.62rem;
   letter-spacing: 0.06em;

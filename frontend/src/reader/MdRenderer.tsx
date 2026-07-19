@@ -151,7 +151,12 @@ export function MdRenderer({
     [blocks, highlights, chunkAt],
   );
 
-  if (!spine) return <div className="center-note">Loading the text…</div>;
+  if (!spine)
+    return (
+      <div className="center-note state-loading" role="status">
+        <span className="spinner" aria-hidden /> Loading the text…
+      </div>
+    );
 
   return (
     <article className="reading-surface" ref={surfaceRef} onMouseUp={onMouseUp}>

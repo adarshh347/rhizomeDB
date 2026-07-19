@@ -80,7 +80,7 @@ export function Library() {
 
   if (error) {
     return (
-      <div className="center-note">
+      <div className="center-note state-error" role="alert">
         <p>{error}</p>
         <p>
           Is the backend running? <code>rhizome serve --reload</code>, and build
@@ -89,7 +89,12 @@ export function Library() {
       </div>
     );
   }
-  if (!books) return <div className="center-note">Loading the library…</div>;
+  if (!books)
+    return (
+      <div className="center-note state-loading" role="status">
+        <span className="spinner" aria-hidden /> Loading the library…
+      </div>
+    );
 
   return (
     <main className="library">
@@ -105,7 +110,7 @@ export function Library() {
       {uploadError && <div className="upload-error">{uploadError}</div>}
 
       {books.length === 0 ? (
-        <div className="center-note">
+        <div className="center-note state-empty">
           <p>No books yet — add one above, or convert into <code>data/converted/</code>{" "}
             and run <code>rhizome build</code>.</p>
         </div>

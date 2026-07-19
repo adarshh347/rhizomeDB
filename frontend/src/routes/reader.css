@@ -61,7 +61,8 @@
   align-self: stretch;
 }
 
-/* format switcher */
+/* The format switch is a bordered control group because PDF/EPUB/Text are
+   mutually exclusive interactive choices, not passive content containers. */
 .format-switch {
   display: inline-flex;
   border: 1px solid var(--rule-strong);
@@ -520,4 +521,11 @@ mark.hl.pulse {
 
 @keyframes sheet-in {
   from { transform: translateY(1.5rem); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  mark.hl.pulse,
+  .pdf-page.pulse {
+    animation: none;
+  }
 }

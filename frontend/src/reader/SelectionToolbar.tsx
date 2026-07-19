@@ -39,6 +39,8 @@ export function SelectionToolbar({
       ref={refs.setFloating}
       style={floatingStyles}
       data-placement={placement}
+      role="toolbar"
+      aria-label="Mark selected passage"
       onMouseDown={(e) => e.preventDefault() /* keep the selection alive */}
     >
       <div className="swatches">
@@ -48,6 +50,8 @@ export function SelectionToolbar({
             className={`swatch ${c === color ? "on" : ""}`}
             style={{ background: `var(--hl-${c})` }}
             title={c}
+            aria-label={`Use ${c} highlight`}
+            aria-pressed={c === color}
             onClick={() => onColor(c)}
           />
         ))}
