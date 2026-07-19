@@ -343,6 +343,18 @@ row. The enhancement leaves `SpineView` runs and `[data-s]` offsets unchanged an
 is disabled in the spine-annotated view. PDF and EPUB intentionally have no
 marginalia implementation or parity claim.
 
+**Verification evidence (Google Chrome 147, local corpus, temporary QA marks
+cleared after capture):**
+
+| # | Surface | Evidence |
+|---|---|---|
+| 08 | ![Wide collision stack](assets/reader-ui-audit/08-wide-marginalia-collision.png) | Six nearby annotations at 1745px; measured notes remain collision-free. |
+| 09 | ![Expanded long note](assets/reader-ui-audit/09-wide-marginalia-expanded.png) | Expanded long note; following notes reflow below it. |
+| 10 | ![Gutter to rail synchronization](assets/reader-ui-audit/10-marginalia-to-rail-sync.png) | Activating the second gutter note selects the matching Notes-rail row. |
+| 11 | ![Rail to gutter synchronization](assets/reader-ui-audit/11-rail-to-marginalia-sync.png) | Activating a Notes-rail row selects the matching gutter note and locates its mark. |
+| 12 | ![Intermediate layout](assets/reader-ui-audit/12-marginalia-intermediate-absent.png) | At 1490px marginalia is absent and the normal reader/rail layout remains. |
+| 13 | ![Narrow layout](assets/reader-ui-audit/13-marginalia-narrow-regression.png) | At 800px the ordinary responsive reader remains overflow-free. |
+
 ---
 
 ## Appendix — sources consulted
