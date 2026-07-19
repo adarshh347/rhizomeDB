@@ -21,6 +21,7 @@ export interface UploadResult {
 
 export interface ImportResult {
   origin: string;
+  format?: string; // sidecar imports report the detected format (koreader/json/csv)
   imported: number;
   orphaned: number;
   duplicate: number;
@@ -104,6 +105,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ book_id: bookId, text }),
     }),
+
+  // Multipart (not req()) so the browser sets the multipart boundary itself.
+  importSidecar: async (bookId: string, file: File): Promise<ImportResult> => {
+    const body = new FormData();
+    body.append("book_id", bookId);
+    body.append("file", file);
+    const res = await fetch(`${BASE}/import/sidecar`, { method: "POST", body });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* non-JSON */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return res.json() as Promise<ImportResult>;
+  },
 
   orphanCandidates: (id: string) =>
     req<{ candidates: OrphanCandidate[] }>(
