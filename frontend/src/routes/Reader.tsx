@@ -3,7 +3,9 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { api, ApiError } from "../api/client";
 import type { BookPayload } from "../api/types";
+import type { ImportResult } from "../api/client";
 import { EpubRenderer } from "../reader/EpubRenderer";
+import { ImportMenu } from "../reader/ImportMenu";
 import { MdRenderer } from "../reader/MdRenderer";
 import { NotesRail } from "../reader/NotesRail";
 import { PdfRenderer } from "../reader/PdfRenderer";
@@ -28,7 +30,17 @@ export function Reader() {
   const [flash, setFlash] = useState<string | null>(null);
   const jumpRef = useRef<((a: import("../api/types").Annotation) => void) | null>(null);
 
-  const { items, create, remove } = useAnnotations(bookId);
+  const { items, create, remove, pin, dismiss, reload } = useAnnotations(bookId);
+
+  const onImported = (r: ImportResult & { error?: string }) => {
+    reload();
+    if (r.total < 0) {
+      showFlash(`Import failed${r.error ? `: ${r.error}` : ""}.`);
+    } else {
+      const dup = r.duplicate ? `, ${r.duplicate} already present` : "";
+      showFlash(`Imported ${r.imported} anchored, ${r.orphaned} orphaned${dup}.`);
+    }
+  };
 
   useEffect(() => {
     setBook(null);
@@ -135,6 +147,7 @@ export function Reader() {
             Spine view
           </label>
         )}
+        <ImportMenu bookId={bookId} formats={book.formats} onImported={onImported} />
       </div>
 
       <div className="reader-body">
@@ -144,7 +157,13 @@ export function Reader() {
           {format === "md" && <MdRenderer {...rendererProps} spineView={spineView} />}
         </div>
 
-        <NotesRail items={items} onJump={(a) => jumpRef.current?.(a)} onDelete={remove} />
+        <NotesRail
+          items={items}
+          onJump={(a) => jumpRef.current?.(a)}
+          onDelete={remove}
+          onPin={pin}
+          onDismiss={dismiss}
+        />
       </div>
 
       {anchor && (
