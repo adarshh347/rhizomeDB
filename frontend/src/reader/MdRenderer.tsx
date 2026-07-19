@@ -16,7 +16,7 @@ export function MdRenderer({
   book,
   annotations,
   onSelect,
-  jumpRef,
+  handleRef,
   spineView = false,
 }: RendererProps & { spineView?: boolean }) {
   const [spine, setSpine] = useState<string | null>(null);
@@ -60,13 +60,27 @@ export function MdRenderer({
     [book],
   );
 
-  jumpRef.current = (a: Annotation) => {
-    const el = surfaceRef.current?.querySelector(`[data-aid="${a.id}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("pulse");
-      setTimeout(() => el.classList.remove("pulse"), 1200);
-    }
+  const pulse = (el: Element, behavior: ScrollBehavior = "smooth") => {
+    el.scrollIntoView({ behavior, block: "center" });
+    el.classList.add("pulse");
+    setTimeout(() => el.classList.remove("pulse"), 1200);
+  };
+
+  handleRef.current = {
+    jumpToAnnotation: (a: Annotation) => {
+      const el = surfaceRef.current?.querySelector(`[data-aid="${a.id}"]`);
+      if (el) pulse(el);
+    },
+    // Locate a chunk by its spine offset: the span whose offset starts it.
+    locateChunk: (chunk) => {
+      if (chunk.spine_start == null || !surfaceRef.current) return;
+      let best: HTMLElement | null = null;
+      surfaceRef.current.querySelectorAll<HTMLElement>("[data-s]").forEach((s) => {
+        const v = Number(s.dataset.s);
+        if (v <= chunk.spine_start! && (!best || v > Number(best.dataset.s))) best = s;
+      });
+      if (best) pulse(best, "auto");
+    },
   };
 
   const onMouseUp = useCallback(() => {

@@ -121,7 +121,14 @@ no CDN), and always as **Markdown off the spine** otherwise. The format switch
 lives in the reader bar; every renderer shares one selection toolbar, notes
 rail, and resolver, so a highlight in any format anchors to the spine, records a
 format-native locator (PDF `{page, quads}` · EPUB `{cfi}` · MD spine offsets),
-and lands in the same `annotations.jsonl`. `npm install` copies PDF.js's
+and lands in the same `annotations.jsonl`.
+
+The **Spine** toggle reveals the two-layer view (R6): the reading surface's right
+rail becomes a navigable index of the book's chunks — the units the connection
+engine actually reads — each with its id, character span, and preview. Click one
+to jump to it in the native view; conversely `/read/<book>?chunk=<id>` opens the
+book scrolled to that passage, so any chunk id anywhere is a shareable location.
+A light/dark/auto theme toggle sits in the top bar. `npm install` copies PDF.js's
 standard-font + cmap data into `frontend/public/pdfjs/` (postinstall) so base-14
 and non-Latin PDFs render locally.
 
