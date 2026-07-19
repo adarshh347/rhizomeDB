@@ -13,12 +13,14 @@ export function NotesRail({
   onDelete,
   onPin,
   onDismiss,
+  onConnect,
 }: {
   items: Annotation[];
   onJump: (a: Annotation) => void;
   onDelete: (id: string) => void;
   onPin: (id: string, chunkId: string) => void;
   onDismiss: (id: string) => void;
+  onConnect: (chunkId: string) => void;
 }) {
   const marks = items.filter((a) => a.quote && !a.orphaned);
   const orphans = items.filter((a) => a.orphaned && a.quote);
@@ -56,6 +58,15 @@ export function NotesRail({
                   </span>
                 )}
                 {a.origin && <span className="tag">{a.origin}</span>}
+                {a.primary_chunk_id && (
+                  <button
+                    className="rail-link"
+                    onClick={() => onConnect(a.primary_chunk_id!)}
+                    title="Connections to this passage"
+                  >
+                    ⇄
+                  </button>
+                )}
                 <span className="when">{(a.created || "").slice(0, 16)}</span>
                 <button className="rail-del" onClick={() => onDelete(a.id)} title="Delete">
                   ×

@@ -9,10 +9,12 @@ export function SpinePanel({
   book,
   activeId,
   onOpen,
+  onConnect,
 }: {
   book: BookPayload;
   activeId?: string | null;
   onOpen: (chunk: Paragraph) => void;
+  onConnect: (chunk: Paragraph) => void;
 }) {
   return (
     <aside className="spine-panel">
@@ -25,11 +27,8 @@ export function SpinePanel({
       </p>
       <ul className="chunk-list">
         {book.paragraphs.map((c) => (
-          <li key={c.id}>
-            <button
-              className={`chunk-row ${c.id === activeId ? "active" : ""}`}
-              onClick={() => onOpen(c)}
-            >
+          <li key={c.id} className={`chunk-row ${c.id === activeId ? "active" : ""}`}>
+            <button className="chunk-main" onClick={() => onOpen(c)}>
               <span className="chunk-hd">
                 <span className="chunk-id">#{c.id.split("#")[1]}</span>
                 {c.heading && <span className="chunk-heading">{c.heading}</span>}
@@ -44,6 +43,13 @@ export function SpinePanel({
                 {c.text.slice(0, 140)}
                 {c.text.length > 140 ? "…" : ""}
               </span>
+            </button>
+            <button
+              className="chunk-connect"
+              onClick={() => onConnect(c)}
+              title="Find rhizomatic connections to this passage"
+            >
+              ⇄
             </button>
           </li>
         ))}
