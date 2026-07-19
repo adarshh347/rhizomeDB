@@ -22,6 +22,8 @@ export interface UploadResult {
 export interface ImportResult {
   origin: string;
   format?: string; // sidecar imports report the detected format (koreader/json/csv)
+  detected?: string | null; // md auto-detect: the matched book_id (null if none)
+  detected_title?: string | null;
   imported: number;
   orphaned: number;
   duplicate: number;

@@ -23,7 +23,8 @@ import hashlib
 import json
 import re
 
-from . import reader_service as rs, sources
+from . import anchor, reader_service as rs, sources
+from .catalog import load_catalog
 
 _TEXT_MARKUP = {"Highlight", "Underline", "StrikeOut", "Squiggly"}
 
@@ -178,6 +179,56 @@ def import_markdown(book_id: str, text: str) -> dict:
         items.append(res["annotation"])
     return {"origin": "import-md", "imported": imported, "orphaned": orphaned,
             "duplicate": duplicate, "total": len(items), "items": items}
+
+
+def detect_book(pairs: list[tuple[str, str]]) -> tuple[str | None, dict[str, int]]:
+    """Guess which book a set of quotes came from (R9 auto-detect): the book
+    whose spine literally contains the most of them. Matching against the spine
+    — the same text the resolver anchors into — makes the guess and the later
+    resolution agree. Returns (best_book_id or None, per-book hit counts)."""
+    quotes = [_clean(q).lower() for q, _ in pairs if q]
+    if not quotes:
+        return None, {}
+    scores: dict[str, int] = {}
+    weight: dict[str, int] = {}  # total matched characters — the tie-breaker
+    for book_id in load_catalog():
+        try:
+            norm = _clean(anchor.load_spine(book_id)).lower()
+        except Exception:
+            continue  # no local spine (e.g. R2-only) — can't match against it
+        hits = w = 0
+        for q in quotes:
+            if q in norm:
+                hits += 1
+                w += len(q)
+        if hits:
+            scores[book_id] = hits
+            weight[book_id] = w
+    if not scores:
+        return None, {}
+    # Most quotes matched wins; ties break on total matched length (longer, more
+    # specific overlap beats a short generic phrase). A single quote shared by
+    # two books is genuinely ambiguous — auto-detect is reliable in proportion to
+    # how many quotes you paste.
+    best = max(scores, key=lambda k: (scores[k], weight[k]))
+    return best, scores
+
+
+def import_markdown_detect(text: str) -> dict:
+    """Parse markdown quotes, auto-detect the book they belong to, and import
+    against it (R9). If nothing matches, import nothing and say so — never guess
+    a book we can't support."""
+    pairs = parse_markdown_quotes(text)
+    book_id, scores = detect_book(pairs)
+    if book_id is None:
+        return {"origin": "import-md", "detected": None, "detected_title": None,
+                "imported": 0, "orphaned": 0, "duplicate": 0, "total": 0,
+                "items": [], "candidates": scores}
+    res = import_markdown(book_id, text)
+    res["detected"] = book_id
+    res["detected_title"] = (load_catalog().get(book_id) or {}).get("title")
+    res["candidates"] = scores
+    return res
 
 
 # --- EPUB reader sidecars (R10) ----------------------------------------------

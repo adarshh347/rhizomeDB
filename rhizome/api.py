@@ -85,7 +85,7 @@ class ConfirmRequest(BaseModel):
 
 
 class MarkdownImport(BaseModel):
-    book_id: str
+    book_id: str = ""  # empty → auto-detect the book by best corpus match (R9)
     text: str = Field(min_length=1)
 
 
@@ -282,7 +282,9 @@ def import_pdf(book_id: str):
 @app.post(f"{V2}/import/markdown")
 def import_markdown(body: MarkdownImport):
     try:
-        return imports.import_markdown(body.book_id, body.text)
+        if body.book_id:
+            return imports.import_markdown(body.book_id, body.text)
+        return imports.import_markdown_detect(body.text)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
 
