@@ -13,6 +13,12 @@
   /* ---- type families ---- */
   --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino,
     "Georgia", serif;
+  /* The book itself (Plane 1) reads in a serif: Fraunces' variable default is
+   * its text optical size, so the same vendored file serves display headings
+   * and long-form reading; the fallbacks are genuine book faces. UI chrome
+   * stays in Inter — the planes must not blur. */
+  --font-reading: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino,
+    "Georgia", serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;

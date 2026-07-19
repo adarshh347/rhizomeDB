@@ -49,6 +49,7 @@ export function MdRenderer({
         spine_end: pos.spine_end,
         color: a.color || "amber",
         approximate: !!a.selector?.approximate,
+        note: a.note || undefined,
       });
     }
     return spans;

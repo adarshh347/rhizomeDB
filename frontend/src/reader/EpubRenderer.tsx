@@ -88,7 +88,8 @@ export function EpubRenderer({ bookId, annotations, onSelect, handleRef }: Rende
         body: {
           background: tok("--paper"),
           color: tok("--ink"),
-          "font-family": tok("--font-body"),
+          // the book reads in the reading serif, same as the MD surface
+          "font-family": tok("--font-reading"),
           "line-height": "1.7",
           padding: "1rem 1.5rem",
         },
