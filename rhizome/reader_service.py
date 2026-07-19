@@ -276,7 +276,8 @@ def book_annotations(book_id: str):
     """All annotations across every chunk of one book, for the reader's notes
     rail (kept separate from the per-target annotations the panel posts to)."""
     items = [a for a in workspace.list_annotations(None)
-             if a.get("target", "").split("#", 1)[0] == book_id]
+             if a.get("target", "").split("#", 1)[0] == book_id
+             or a.get("book_id") == book_id]
     items.sort(key=lambda a: (a.get("target", ""), a.get("created", "")))
     return {"items": items}
 
@@ -596,6 +597,107 @@ def chat_turn(target: str, message: str, context: str = "", source_label: str = 
     usage = dict(getattr(eng.client, "last_usage", {}) or {})
     return {"reply": reply, "msg_id": rec["msg_id"], "usage": usage,
             "cumulative": getattr(eng.client, "total_usage", {}).get("total", 0)}
+
+
+def create_anchored_annotation(book_id: str, quote: str, *, prefix: str = "",
+                               suffix: str = "", kind: str = "highlight",
+                               note: str = "", color: str = "amber",
+                               source: str = "reader", origin: str = "",
+                               locator: dict | None = None,
+                               content_hash: str = "") -> dict:
+    """Resolve a quote to the spine and store the annotation — the one path a
+    reader highlight and an import both take.
+
+    Idempotent when ``content_hash`` is given: a re-import returns the existing
+    record (its note refreshed) instead of duplicating. An unresolvable quote is
+    stored as an orphan (never dropped). Returns
+    ``{annotation, chunks, orphaned}``.
+    """
+    from . import anchor
+    if content_hash:
+        existing = workspace.find_by_content_hash(content_hash)
+        if existing is not None:
+            if note and note != existing.get("note"):
+                existing = workspace.update_annotation(existing["id"], {"note": note}) or existing
+            return {"annotation": existing, "chunks": existing.get("chunk_ids", []),
+                    "orphaned": bool(existing.get("orphaned")), "existing": True}
+
+    result = anchor.resolve(quote, prefix, suffix, book_id=book_id)
+    if result is None:
+        rec = workspace.add_annotation(
+            f"book:{book_id}", kind, quote=quote, note=note, color=color,
+            source=source, book_id=book_id, prefix=prefix, suffix=suffix,
+            origin=origin, orphaned=True, content_hash=content_hash)
+        return {"annotation": rec, "chunks": [], "orphaned": True}
+
+    hits = anchor.chunks_for(result.spine_start, result.spine_end, book_id=book_id)
+    selector = anchor.selector_bundle(quote, prefix, suffix, result, locator)
+    target = hits[0]["chunk_id"] if hits else f"book:{book_id}"
+    rec = workspace.add_annotation(
+        target, kind, quote=quote, note=note, color=color, source=source,
+        book_id=book_id, selector=selector, chunk_ids=[h["chunk_id"] for h in hits],
+        origin=origin, content_hash=content_hash)
+    return {"annotation": rec, "chunks": hits, "orphaned": False}
+
+
+def _words(s: str) -> set[str]:
+    return {w for w in _re.findall(r"[a-z0-9]+", s.lower()) if len(w) > 2}
+
+
+def orphan_candidates(ann_id: str, limit: int = 5) -> list[dict]:
+    """Passages in the orphan's book most likely to hold its quote, ranked by
+    word overlap — the search that helps a reader pin it manually (R11). Uses
+    only chunks.jsonl, so it works without the vector index."""
+    ann = workspace.get_annotation(ann_id)
+    if ann is None:
+        return []
+    quote = ann.get("quote", "")
+    book_id = ann.get("book_id") or ann.get("target", "").split("#", 1)[0]
+    qwords = _words(quote)
+    if not qwords:
+        return []
+    scored = []
+    for c in reader_chunks():
+        if c.get("book_id") != book_id:
+            continue
+        overlap = len(qwords & _words(c["text"])) / len(qwords)
+        if overlap > 0:
+            snippet = c["text"][:200] + ("…" if len(c["text"]) > 200 else "")
+            scored.append((overlap, {"chunk_id": c["id"], "heading": c.get("heading"),
+                                     "page": c.get("page"), "score": round(overlap, 3),
+                                     "snippet": snippet}))
+    scored.sort(key=lambda s: s[0], reverse=True)
+    return [c for _, c in scored[:limit]]
+
+
+def pin_orphan(ann_id: str, chunk_id: str) -> dict | None:
+    """Anchor an orphan to a chosen passage: locate its quote inside that chunk's
+    spine span, attach a position + chunk, and clear the orphan flag (R11)."""
+    from . import anchor
+
+    ann = workspace.get_annotation(ann_id)
+    if ann is None:
+        return None
+    book_id = ann.get("book_id") or ann.get("target", "").split("#", 1)[0]
+    chunk = next((c for c in reader_chunks() if c.get("id") == chunk_id
+                  and c.get("book_id") == book_id), None)
+    if chunk is None or chunk.get("spine_start") is None:
+        return None
+
+    quote = ann.get("quote", "")
+    spine = anchor.load_spine(book_id)
+    cs, ce = chunk["spine_start"], chunk["spine_end"]
+    idx = spine.find(quote, cs, ce)
+    exact = idx >= 0
+    start, end = (idx, idx + len(quote)) if exact else (cs, ce)
+
+    selector = dict(ann.get("selector") or {})
+    selector["text_quote"] = {"quote": quote, "prefix": "", "suffix": ""}
+    selector["text_position"] = {"spine_start": start, "spine_end": end}
+    selector["approximate"] = not exact
+    return workspace.update_annotation(ann_id, {
+        "selector": selector, "target": chunk_id, "chunk_ids": [chunk_id],
+        "primary_chunk_id": chunk_id, "orphaned": None})
 
 
 def confirm_candidate(book: str, passage_id: str, action: str, evidence: str = ""):

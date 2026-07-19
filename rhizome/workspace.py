@@ -49,7 +49,8 @@ def add_annotation(target: str, kind: str, *, quote: str = "", note: str = "",
                    passage_id: str = "", msg_id: str = "", chat_target: str = "",
                    book_id: str = "", prefix: str = "", suffix: str = "",
                    selector: dict | None = None, chunk_ids: list[str] | None = None,
-                   origin: str = "", orphaned: bool = False) -> dict:
+                   origin: str = "", orphaned: bool = False,
+                   content_hash: str = "") -> dict:
     """kind: 'highlight' (a marked span, optional note) | 'note' (free comment).
 
     source — where the annotation grew from. Human marks default to 'reader'
@@ -82,6 +83,8 @@ def add_annotation(target: str, kind: str, *, quote: str = "", note: str = "",
         rec["origin"] = origin
     if orphaned:
         rec["orphaned"] = True
+    if content_hash:
+        rec["content_hash"] = content_hash
     if passage_id:
         rec["passage_id"] = passage_id
     if msg_id:
@@ -176,6 +179,48 @@ def delete_annotation(ann_id: str) -> bool:
         for r in kept:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     return len(kept) != len(rows)
+
+
+def get_annotation(ann_id: str) -> dict | None:
+    for r in list_annotations():
+        if r.get("id") == ann_id:
+            return r
+    return None
+
+
+def find_by_content_hash(content_hash: str) -> dict | None:
+    """The existing annotation with this import fingerprint, if any — the join
+    key that keeps re-imports idempotent (update in place, never duplicate)."""
+    if not content_hash:
+        return None
+    for r in list_annotations():
+        if r.get("content_hash") == content_hash:
+            return r
+    return None
+
+
+def update_annotation(ann_id: str, changes: dict) -> dict | None:
+    """Merge `changes` into one annotation in place. `None` values delete keys.
+    Used to pin an orphan (attach a resolved selector + chunks) or edit a note."""
+    if not ANNOT_PATH.exists():
+        return None
+    rows = [json.loads(l) for l in ANNOT_PATH.read_text(encoding="utf-8").splitlines() if l.strip()]
+    updated = None
+    for r in rows:
+        if r.get("id") == ann_id:
+            for k, v in changes.items():
+                if v is None:
+                    r.pop(k, None)
+                else:
+                    r[k] = v
+            updated = r
+            break
+    if updated is None:
+        return None
+    with ANNOT_PATH.open("w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return updated
 
 
 # --- chats -------------------------------------------------------------------

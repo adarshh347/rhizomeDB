@@ -33,5 +33,15 @@ export function useAnnotations(bookId: string) {
     setItems((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  return { items, loading, create, remove, reload };
+  const pin = useCallback(async (id: string, chunkId: string) => {
+    const { annotation } = await api.pinOrphan(id, chunkId);
+    setItems((prev) => prev.map((a) => (a.id === id ? annotation : a)));
+  }, []);
+
+  const dismiss = useCallback(async (id: string) => {
+    await api.dismissOrphan(id);
+    setItems((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  return { items, loading, create, remove, pin, dismiss, reload };
 }

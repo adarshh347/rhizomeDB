@@ -19,6 +19,22 @@ export interface UploadResult {
   formats: BookFormat[];
 }
 
+export interface ImportResult {
+  origin: string;
+  imported: number;
+  orphaned: number;
+  duplicate: number;
+  total: number;
+}
+
+export interface OrphanCandidate {
+  chunk_id: string;
+  heading: string | null;
+  page: number | null;
+  score: number;
+  snippet: string;
+}
+
 const BASE = "/api/v2";
 
 export class ApiError extends Error {
@@ -76,6 +92,33 @@ export const api = {
   deleteAnnotation: (id: string) =>
     req<{ ok: boolean }>(`/annotations/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+
+  importPdf: (bookId: string) =>
+    req<ImportResult>(`/books/${encodeURIComponent(bookId)}/import/pdf`, {
+      method: "POST",
+    }),
+
+  importMarkdown: (bookId: string, text: string) =>
+    req<ImportResult>("/import/markdown", {
+      method: "POST",
+      body: JSON.stringify({ book_id: bookId, text }),
+    }),
+
+  orphanCandidates: (id: string) =>
+    req<{ candidates: OrphanCandidate[] }>(
+      `/orphans/${encodeURIComponent(id)}/candidates`,
+    ).then((r) => r.candidates),
+
+  pinOrphan: (id: string, chunkId: string) =>
+    req<{ annotation: Annotation }>(`/orphans/${encodeURIComponent(id)}/pin`, {
+      method: "POST",
+      body: JSON.stringify({ chunk_id: chunkId }),
+    }),
+
+  dismissOrphan: (id: string) =>
+    req<{ ok: boolean }>(`/orphans/${encodeURIComponent(id)}/dismiss`, {
+      method: "POST",
     }),
 
   // Multipart upload — let the browser set the boundary Content-Type, so this

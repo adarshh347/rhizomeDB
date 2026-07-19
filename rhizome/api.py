@@ -28,7 +28,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import anchor, config, ingest, reader_service as rs, rhythm, sources, workspace
+from . import (anchor, config, imports, ingest, reader_service as rs, rhythm,
+               sources, workspace)
 
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024  # 120 MB — comfortably fits a large scanned PDF
 
@@ -81,6 +82,15 @@ class ConfirmRequest(BaseModel):
     passage_id: str
     action: str
     evidence: str = ""
+
+
+class MarkdownImport(BaseModel):
+    book_id: str
+    text: str = Field(min_length=1)
+
+
+class PinRequest(BaseModel):
+    chunk_id: str
 
 
 # --------------------------------------------------------------------------- #
@@ -232,27 +242,12 @@ def create_annotation(body: AnnotationCreate):
     # unresolvable quote is stored as an orphan (never dropped), not rejected.
     if body.book_id and body.quote:
         try:
-            result = anchor.resolve(body.quote, body.prefix, body.suffix,
-                                    book_id=body.book_id)
+            return rs.create_anchored_annotation(
+                body.book_id, body.quote, prefix=body.prefix, suffix=body.suffix,
+                kind=body.kind, note=body.note, color=body.color,
+                source=body.source, origin=body.origin, locator=body.locator)
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if result is None:
-            rec = workspace.add_annotation(
-                body.target or f"book:{body.book_id}", body.kind, quote=body.quote,
-                note=body.note, color=body.color, source=body.source,
-                book_id=body.book_id, prefix=body.prefix, suffix=body.suffix,
-                origin=body.origin, orphaned=True)
-            return {"annotation": rec, "chunks": [], "orphaned": True}
-        hits = anchor.chunks_for(result.spine_start, result.spine_end,
-                                 book_id=body.book_id)
-        selector = anchor.selector_bundle(body.quote, body.prefix, body.suffix,
-                                          result, body.locator)
-        target = body.target or (hits[0]["chunk_id"] if hits else f"book:{body.book_id}")
-        rec = workspace.add_annotation(
-            target, body.kind, quote=body.quote, note=body.note, color=body.color,
-            source=body.source, book_id=body.book_id, selector=selector,
-            chunk_ids=[h["chunk_id"] for h in hits], origin=body.origin)
-        return {"annotation": rec, "chunks": hits, "orphaned": False}
 
     # Path B — a legacy passage / companion note (no spine anchoring). AI
     # annotations carry a passage_id; default the target to it so companion
@@ -273,6 +268,50 @@ def delete_annotation(ann_id: str):
 @app.get(f"{V2}/companion-notes")
 def companion_notes(passage_id: str | None = None):
     return {"items": workspace.list_companion_notes(passage_id)}
+
+
+# ---- imports (R8/R9) + orphan queue (R11) ----------------------------------
+@app.post(f"{V2}/books/{{book_id}}/import/pdf")
+def import_pdf(book_id: str):
+    try:
+        return imports.import_pdf_annotations(book_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.post(f"{V2}/import/markdown")
+def import_markdown(body: MarkdownImport):
+    try:
+        return imports.import_markdown(body.book_id, body.text)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get(f"{V2}/orphans")
+def orphans(book_id: str | None = None):
+    rows = [r for r in workspace.list_annotations() if r.get("orphaned")]
+    if book_id is not None:
+        rows = [r for r in rows if (r.get("book_id")
+                or r.get("target", "").split("#", 1)[0]) == book_id]
+    return {"items": rows}
+
+
+@app.get(f"{V2}/orphans/{{ann_id}}/candidates")
+def orphan_candidates(ann_id: str):
+    return {"candidates": rs.orphan_candidates(ann_id)}
+
+
+@app.post(f"{V2}/orphans/{{ann_id}}/pin")
+def pin_orphan(ann_id: str, body: PinRequest):
+    rec = rs.pin_orphan(ann_id, body.chunk_id)
+    if rec is None:
+        raise HTTPException(404, "orphan or chunk not found")
+    return {"annotation": rec}
+
+
+@app.post(f"{V2}/orphans/{{ann_id}}/dismiss")
+def dismiss_orphan(ann_id: str):
+    return {"ok": workspace.delete_annotation(ann_id)}
 
 
 # ---- chat -------------------------------------------------------------------

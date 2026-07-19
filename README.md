@@ -143,6 +143,23 @@ the spine right away. It joins the *vector* index (for `explore`) only when
 embeddings are rebuilt; reading needs only the chunk index. MOBI is extracted to
 EPUB (Calibre's `ebook-convert` if present, else the pure-Python `mobi` lib).
 
+### Importing annotations
+
+Annotations made elsewhere take on the same life as native ones — each importer
+is a parser feeding the one quote resolver (`rhizome/imports.py`):
+
+- **Embedded PDF highlights** — `Import ▾ → Embedded PDF highlights` reads the
+  book's `/Annots` (Highlight/Underline/StrikeOut/Squiggly + popup notes), lifts
+  the covered text and note, resolves against the spine, and repaints the mark
+  at its original quads. Idempotent (re-import updates, never duplicates).
+- **Markdown / Obsidian** — paste notes; `==highlights==` and `>` blockquotes
+  (with an optional note line) each become a quote.
+
+Every imported mark carries an `origin` tag (`import-pdf` / `import-md`, R12). A
+quote that can't be anchored lands in the **orphan queue** rather than being
+dropped (R11): pin it to a passage — candidates are suggested by word overlap —
+or dismiss it.
+
 ## Tuning the connections
 
 All the geometry knobs live in `rhizome/config.py`:
