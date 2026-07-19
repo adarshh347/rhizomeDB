@@ -45,6 +45,14 @@ button {
   cursor: pointer;
 }
 
+/* One accessible focus ring for every interactive element (keyboard only —
+ * :focus-visible already excludes mouse focus). Foundation was missing this. */
+:focus-visible {
+  outline: var(--ring-width) solid var(--ring-color);
+  outline-offset: var(--ring-offset);
+  border-radius: 4px;
+}
+
 ::selection {
   background: var(--accent-wash);
 }

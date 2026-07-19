@@ -7,7 +7,6 @@ import type {
   BookSummary,
   CreateAnnotationBody,
   CreateAnnotationResult,
-  ResolveResult,
   SpinePayload,
 } from "./types";
 
@@ -79,12 +78,6 @@ export const api = {
     req<{ items: Annotation[] }>(
       `/books/${encodeURIComponent(bookId)}/annotations`,
     ).then((r) => r.items),
-
-  resolve: (body: { book_id: string; quote: string; prefix?: string; suffix?: string }) =>
-    req<ResolveResult>("/anchors/resolve", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
 
   createAnnotation: (body: CreateAnnotationBody) =>
     req<CreateAnnotationResult>("/annotations", {
