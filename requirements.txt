@@ -2,8 +2,17 @@
 pymupdf4llm
 mobi
 # Embeddings (local, ONNX — no torch)
-fastembed
+fastembed          # pulls CPU onnxruntime; embeds at ~1 chunk/s on CPU
 numpy
+# Optional GPU acceleration for embedding (~3-4x on a modest card, more on newer
+# ones). fastembed auto-uses CUDA when onnxruntime-gpu is present, and embed.py
+# calls onnxruntime.preload_dlls() so the pip-wheel CUDA libs are found. Match
+# the CUDA major of onnxruntime-gpu: the 1.22.x line is CUDA 12, so pair it with
+# the cu12 runtime wheels (the 1.27+ line moved to CUDA 13):
+#   pip uninstall -y onnxruntime
+#   pip install "onnxruntime-gpu==1.22.0" \
+#     nvidia-cuda-runtime-cu12 nvidia-cudnn-cu12 nvidia-cublas-cu12 \
+#     nvidia-cufft-cu12 nvidia-curand-cu12
 # Connection engine brain
 anthropic
 pydantic
