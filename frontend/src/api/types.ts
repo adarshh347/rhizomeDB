@@ -119,3 +119,34 @@ export interface CreateAnnotationResult {
   chunks: ChunkHit[];
   orphaned: boolean;
 }
+
+// --- connection engine (SSE /explore) --------------------------------------
+export interface ExploreSeed {
+  label: string;
+  text: string;
+  author: string | null;
+  book_id: string | null;
+  embed_label: string;
+}
+
+export interface ExploreCandidate {
+  index: number;
+  author: string;
+  title: string;
+  page: number | null;
+  chunk_id: string;
+  similarity: number;
+  direct_dissimilarity: number;
+  structural_similarity: number | null;
+  text: string;
+}
+
+export interface ExploreVerdict {
+  index: number;
+  connected: boolean;
+  genuine: boolean;
+  forced_risk: string;
+  bridge_concept: string;
+  articulation: string;
+  confidence: number;
+}

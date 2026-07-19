@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { BookPayload, Paragraph } from "../api/types";
 import type { ImportResult } from "../api/client";
+import { ConnectionsPanel } from "../reader/ConnectionsPanel";
 import { EpubRenderer } from "../reader/EpubRenderer";
 import { ImportMenu } from "../reader/ImportMenu";
 import { MdRenderer } from "../reader/MdRenderer";
@@ -28,6 +29,7 @@ export function Reader() {
   const [composing, setComposing] = useState<AnchorInput | null>(null);
   const [noteText, setNoteText] = useState("");
   const [spineView, setSpineView] = useState(false);
+  const [connChunk, setConnChunk] = useState<string | null>(null);
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const handleRef = useRef<RendererHandle | null>(null);
@@ -178,8 +180,19 @@ export function Reader() {
           {format === "md" && <MdRenderer {...rendererProps} spineView={spineView} />}
         </div>
 
-        {spineView ? (
-          <SpinePanel book={book} activeId={activeChunk} onOpen={openChunk} />
+        {connChunk ? (
+          <ConnectionsPanel
+            chunkId={connChunk}
+            fromLabel={book.title}
+            onClose={() => setConnChunk(null)}
+          />
+        ) : spineView ? (
+          <SpinePanel
+            book={book}
+            activeId={activeChunk}
+            onOpen={openChunk}
+            onConnect={(c) => setConnChunk(c.id)}
+          />
         ) : (
           <NotesRail
             items={items}
@@ -187,6 +200,7 @@ export function Reader() {
             onDelete={remove}
             onPin={pin}
             onDismiss={dismiss}
+            onConnect={(id) => setConnChunk(id)}
           />
         )}
       </div>
