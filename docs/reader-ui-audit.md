@@ -6,6 +6,11 @@
 
 Identity to serve: **"The book remains a book, while its computational spine remains available beneath it."** A serious reading-and-research instrument — not a SaaS dashboard, not a deck of cards.
 
+**Implemented dependency record:** `@radix-ui/react-tabs@1.1.17` (MIT) for the
+unified rail; `@floating-ui/react@0.27.20` (MIT) for collision-aware selection
+actions. Both are exact direct versions in `frontend/package.json`; no React
+Aria or styled component system was added.
+
 ---
 
 # PART A — AUDIT (Phase 1)
