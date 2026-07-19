@@ -22,13 +22,15 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import anchor, config, reader_service as rs, rhythm, sources, workspace
+from . import anchor, config, ingest, reader_service as rs, rhythm, sources, workspace
+
+MAX_UPLOAD_BYTES = 120 * 1024 * 1024  # 120 MB — comfortably fits a large scanned PDF
 
 
 # --------------------------------------------------------------------------- #
@@ -142,6 +144,22 @@ def book_annotations(book_id: str):
 def book_formats(book_id: str):
     return {"book_id": book_id, "formats": sources.formats_for(book_id),
             "default": sources.default_format(book_id)}
+
+
+@app.post(f"{V2}/books/upload", status_code=201)
+async def upload_book(file: UploadFile = File(...)):
+    """Accept a PDF/EPUB/MOBI, convert + index it, and return its library
+    summary. The book is readable natively the moment this responds; it joins
+    the vector index later when embeddings are rebuilt."""
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "file too large (max 120 MB)")
+    try:
+        return ingest.ingest(file.filename or "book", data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # conversion failure — surface, don't 500 silently
+        raise HTTPException(500, f"conversion failed: {type(exc).__name__}: {exc}") from exc
 
 
 @app.get(f"{V2}/books/{{book_id}}/file")

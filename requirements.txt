@@ -9,5 +9,6 @@ anthropic
 pydantic
 fastapi
 uvicorn[standard]
+python-multipart
 # (boto3 only needed for the optional R2 upload script)
 boto3
