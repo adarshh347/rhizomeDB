@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 *.local
 .vite/
+# pdf.js standard-font + cmap data, copied from node_modules by postinstall
+public/pdfjs/

@@ -2,6 +2,13 @@
 // what the reader consumes — and additive, matching the backend convention that
 // selector positions/locators are caches while the quote is authoritative.
 
+export interface BookFormat {
+  format: "pdf" | "epub" | "md";
+  native: boolean;
+  available: boolean;
+  source_file: string | null;
+}
+
 export interface BookSummary {
   book_id: string;
   title: string;
@@ -9,6 +16,7 @@ export interface BookSummary {
   year: number | null;
   n_chunks: number;
   n_annotations: number;
+  formats: BookFormat[];
 }
 
 export interface TocEntry {
@@ -36,6 +44,8 @@ export interface BookPayload {
   n_chunks: number;
   toc: TocEntry[];
   paragraphs: Paragraph[];
+  formats: BookFormat[];
+  default_format: string;
 }
 
 export interface SpinePayload {

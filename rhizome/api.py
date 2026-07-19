@@ -28,7 +28,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import anchor, config, reader_service as rs, rhythm, workspace
+from . import anchor, config, reader_service as rs, rhythm, sources, workspace
 
 
 # --------------------------------------------------------------------------- #
@@ -136,6 +136,26 @@ def book_spine(book_id: str):
 @app.get(f"{V2}/books/{{book_id}}/annotations")
 def book_annotations(book_id: str):
     return rs.book_annotations(book_id)
+
+
+@app.get(f"{V2}/books/{{book_id}}/formats")
+def book_formats(book_id: str):
+    return {"book_id": book_id, "formats": sources.formats_for(book_id),
+            "default": sources.default_format(book_id)}
+
+
+@app.get(f"{V2}/books/{{book_id}}/file")
+def book_file(book_id: str):
+    """Stream a book's original file (PDF/EPUB) for native rendering. 404 when
+    the source file isn't present locally (it lives in R2, gitignored)."""
+    from fastapi.responses import FileResponse
+
+    info = sources.source_info(book_id)
+    if not info["renderer"] or not info["native_available"]:
+        raise HTTPException(404, f"no native source file available for {book_id!r}")
+    media = sources.media_type_for(info["renderer"]) or "application/octet-stream"
+    return FileResponse(info["path"], media_type=media,
+                        filename=f"{book_id}.{info['renderer']}")
 
 
 @app.get(f"{V2}/passage")
@@ -400,7 +420,6 @@ def mount_frontend(app: FastAPI) -> None:
     if not (dist / "index.html").exists():
         return  # dev mode: Vite serves the UI and proxies /api here
 
-    index_html = (dist / "index.html").read_text(encoding="utf-8")
     app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     from fastapi.responses import HTMLResponse, FileResponse
@@ -408,11 +427,13 @@ def mount_frontend(app: FastAPI) -> None:
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
         # Serve a real file when one exists (favicon, vendored libs); otherwise
-        # hand back index.html so client-side routing owns the path.
+        # hand back index.html so client-side routing owns the path. index.html
+        # is read per request (not cached at startup) so a frontend rebuild is
+        # picked up without restarting the server.
         candidate = (dist / full_path).resolve()
         if full_path and candidate.is_file() and str(candidate).startswith(str(dist.resolve())):
             return FileResponse(candidate)
-        return HTMLResponse(index_html)
+        return HTMLResponse((dist / "index.html").read_text(encoding="utf-8"))
 
 
 mount_frontend(app)

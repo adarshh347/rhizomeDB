@@ -13,3 +13,6 @@ index/
 
 # Generated, self-contained HTML artifacts (regenerate via the CLI / tools)
 build/
+
+# Generated renderer-test fixtures (scripts/make_sample_books.py)
+data/converted/samples/

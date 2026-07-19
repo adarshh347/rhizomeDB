@@ -16,7 +16,7 @@ import re as _re
 import numpy as np
 
 from . import (config, chunk as chunk_mod, embed as embed_mod,
-               store as store_mod, llm, workspace, rhythm)
+               store as store_mod, llm, workspace, rhythm, sources)
 from .catalog import load_catalog
 
 
@@ -200,7 +200,8 @@ def books_index():
         out.append({"book_id": bid, "title": meta.get("title", bid),
                     "author": meta.get("author", "Unknown"),
                     "year": meta.get("year"), "n_chunks": n,
-                    "n_annotations": anns.get(bid, 0)})
+                    "n_annotations": anns.get(bid, 0),
+                    "formats": sources.formats_for(bid)})
     out.sort(key=lambda b: b["n_chunks"], reverse=True)
     return {"books": out}
 
@@ -226,7 +227,9 @@ def book_payload(book_id: str):
                       "text": c["text"]})
     return {"book_id": book_id, "title": meta.get("title", book_id),
             "author": meta.get("author", "Unknown"), "year": meta.get("year"),
-            "n_chunks": len(chunks), "toc": _build_toc(chunks), "paragraphs": paras}
+            "n_chunks": len(chunks), "toc": _build_toc(chunks), "paragraphs": paras,
+            "formats": sources.formats_for(book_id),
+            "default_format": sources.default_format(book_id)}
 
 
 def _build_toc(chunks):
