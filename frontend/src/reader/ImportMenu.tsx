@@ -19,6 +19,7 @@ export function ImportMenu({
   const [open, setOpen] = useState(false);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
   const sidecarInput = useRef<HTMLInputElement>(null);
   const hasPdf = formats.some((f) => f.format === "pdf" && f.available);
@@ -107,6 +108,14 @@ export function ImportMenu({
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
+            <label className="md-auto" title="Match these quotes against the whole library instead of this book">
+              <input
+                type="checkbox"
+                checked={auto}
+                onChange={(e) => setAuto(e.target.checked)}
+              />
+              Auto-detect the book (match the whole library)
+            </label>
             <div className="composer-actions">
               <button className="btn" onClick={() => setMarkdown(null)}>
                 Cancel
@@ -114,9 +123,9 @@ export function ImportMenu({
               <button
                 className="btn primary"
                 disabled={busy || !text.trim()}
-                onClick={() => run(() => api.importMarkdown(bookId, text))}
+                onClick={() => run(() => api.importMarkdown(auto ? "" : bookId, text))}
               >
-                {busy ? "Importing…" : "Import"}
+                {busy ? "Importing…" : auto ? "Detect & import" : "Import"}
               </button>
             </div>
           </div>

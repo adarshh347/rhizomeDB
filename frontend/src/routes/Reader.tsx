@@ -69,9 +69,17 @@ export function Reader() {
     reload();
     if (r.total < 0) {
       showFlash(`Import failed${r.error ? `: ${r.error}` : ""}.`);
+    } else if (r.detected === null) {
+      // auto-detect found no matching book (detected is null only on that path)
+      showFlash("Couldn’t match those quotes to any book in the library.");
     } else {
       const dup = r.duplicate ? `, ${r.duplicate} already present` : "";
-      showFlash(`Imported ${r.imported} anchored, ${r.orphaned} orphaned${dup}.`);
+      // auto-detect resolved to a book — say which (its marks live over there)
+      const where =
+        r.detected && r.detected !== bookId && r.detected_title
+          ? `Matched “${r.detected_title}” — `
+          : "";
+      showFlash(`${where}imported ${r.imported} anchored, ${r.orphaned} orphaned${dup}.`);
     }
   };
 

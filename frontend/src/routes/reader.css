@@ -439,6 +439,15 @@ mark.hl.pulse {
   background: var(--paper);
   color: var(--ink);
 }
+.md-auto {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
 
 /* orphan queue */
 .orphan-queue {
