@@ -1,0 +1,77 @@
+.library {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+  width: 100%;
+}
+.library-head h1 {
+  font-size: 2.4rem;
+  letter-spacing: -0.01em;
+}
+.library-head .sub {
+  color: var(--ink-soft);
+  margin: 0.4rem 0 0;
+}
+
+.book-grid {
+  list-style: none;
+  padding: 0;
+  margin: 2rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.book-card {
+  display: block;
+  position: relative;
+  height: 100%;
+  padding: 1.25rem 1.25rem 1.1rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+  color: var(--ink);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+}
+.book-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--accent-soft);
+  text-decoration: none;
+}
+
+.book-fmt {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-wash);
+  border-radius: 4px;
+  padding: 0.12rem 0.35rem;
+}
+
+.book-title {
+  font-size: 1.2rem;
+  margin: 0 2.5rem 0.35rem 0;
+  line-height: 1.2;
+}
+.book-author {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+.book-stats {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+}
+.book-stats .ann-count {
+  color: var(--accent);
+}

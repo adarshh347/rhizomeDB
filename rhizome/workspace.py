@@ -46,7 +46,10 @@ def _safe(name: str) -> str:
 # --- annotations -------------------------------------------------------------
 def add_annotation(target: str, kind: str, *, quote: str = "", note: str = "",
                    color: str = "amber", source: str = "reader",
-                   passage_id: str = "", msg_id: str = "", chat_target: str = "") -> dict:
+                   passage_id: str = "", msg_id: str = "", chat_target: str = "",
+                   book_id: str = "", prefix: str = "", suffix: str = "",
+                   selector: dict | None = None, chunk_ids: list[str] | None = None,
+                   origin: str = "", orphaned: bool = False) -> dict:
     """kind: 'highlight' (a marked span, optional note) | 'note' (free comment).
 
     source — where the annotation grew from. Human marks default to 'reader'
@@ -63,6 +66,22 @@ def add_annotation(target: str, kind: str, *, quote: str = "", note: str = "",
     rec = {"id": _uid("an"), "target": target, "kind": kind,
            "quote": quote.strip(), "note": note.strip(), "color": color,
            "source": (source or "reader").strip(), "created": _now()}
+    if book_id:
+        rec["book_id"] = book_id
+    if selector:
+        rec["selector"] = selector
+    elif quote:
+        # Even unresolved records carry the durable half of the selector and
+        # can enter the orphan/re-anchoring flow later.
+        rec["selector"] = {"text_quote": {"quote": quote.strip(),
+                                           "prefix": prefix, "suffix": suffix}}
+    if chunk_ids:
+        rec["chunk_ids"] = chunk_ids
+        rec["primary_chunk_id"] = chunk_ids[0]
+    if origin:
+        rec["origin"] = origin
+    if orphaned:
+        rec["orphaned"] = True
     if passage_id:
         rec["passage_id"] = passage_id
     if msg_id:
@@ -72,6 +91,50 @@ def add_annotation(target: str, kind: str, *, quote: str = "", note: str = "",
     with ANNOT_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec
+
+
+def migrate_annotation_selectors(*, dry_run: bool = False) -> dict:
+    """Backfill selector bundles for legacy quote annotations, in place.
+
+    The legacy target chunk supplies the book when book_id is absent. Records
+    which cannot be resolved are preserved and explicitly marked orphaned.
+    """
+    if not ANNOT_PATH.exists():
+        return {"total": 0, "migrated": 0, "orphaned": 0}
+    from . import anchor
+    rows = [json.loads(line) for line in ANNOT_PATH.read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    migrated = orphaned = 0
+    for rec in rows:
+        if rec.get("selector") or not rec.get("quote"):
+            continue
+        book_id = rec.get("book_id") or (rec.get("target", "").split("#", 1)[0]
+                                         if "#" in rec.get("target", "") else "")
+        prefix, suffix = rec.get("prefix", ""), rec.get("suffix", "")
+        try:
+            found = anchor.resolve(rec["quote"], prefix, suffix, book_id=book_id)
+        except FileNotFoundError:
+            found = None
+        if found:
+            rec["book_id"] = book_id
+            rec["selector"] = anchor.selector_bundle(rec["quote"], prefix, suffix, found)
+            hits = anchor.chunks_for(found.spine_start, found.spine_end, book_id=book_id)
+            rec["chunk_ids"] = [h["chunk_id"] for h in hits]
+            if hits:
+                rec["primary_chunk_id"] = hits[0]["chunk_id"]
+            rec.pop("orphaned", None)
+            migrated += 1
+        else:
+            rec["selector"] = {"text_quote": {"quote": rec["quote"],
+                                               "prefix": prefix, "suffix": suffix}}
+            rec["orphaned"] = True
+            orphaned += 1
+    if not dry_run:
+        _ensure()
+        with ANNOT_PATH.open("w", encoding="utf-8") as f:
+            for rec in rows:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return {"total": len(rows), "migrated": migrated, "orphaned": orphaned}
 
 
 def list_annotations(target: str | None = None, *, source: str | None = None,

@@ -222,12 +222,40 @@ def cmd_usage(_):
     print(usage_mod.format_day())
 
 
+def cmd_spine(_):
+    """Backfill additive offsets and migrate quote annotations."""
+    from . import workspace
+    offsets = chunk_mod.backfill_spine_offsets()
+    annotations = workspace.migrate_annotation_selectors()
+    print(f"Chunk offsets: {offsets}")
+    print(f"Annotation selectors: {annotations}")
+
+
+def cmd_reader_api(args):
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise SystemExit("FastAPI dependencies missing; run: pip install -r requirements.txt") from exc
+    uvicorn.run("rhizome.api:app", host=args.host, port=args.port,
+                reload=bool(args.reload))
+
+
 def main():
     p = argparse.ArgumentParser(prog="rhizome", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("catalog", help="(re)generate catalog.json").set_defaults(func=cmd_catalog)
+    sub.add_parser("spine", help="backfill chunk offsets + migrate quote annotations"
+                   ).set_defaults(func=cmd_spine)
+    for name, helptext in (("reader-api", "run the Rhizome Reader v2 FastAPI backend"),
+                           ("serve", "alias for reader-api (the one backend)")):
+        api = sub.add_parser(name, help=helptext)
+        api.add_argument("--host", default="127.0.0.1")
+        api.add_argument("--port", type=int, default=8010,
+                         help="listen port (default 8010; intentionally not 8000)")
+        api.add_argument("--reload", action="store_true")
+        api.set_defaults(func=cmd_reader_api)
 
     b = sub.add_parser("build", help="multi-resolution build (--levels parent,chunk,proposition)")
     b.add_argument("--levels", default="chunk", help="comma list: parent,chunk,proposition")

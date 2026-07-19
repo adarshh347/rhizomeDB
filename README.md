@@ -84,20 +84,34 @@ author/title for books the catalogue couldn't identify.
 Useful flags: `--candidates N` (size of the band to judge), `--seed N`
 (reproducible randomness).
 
-## Frontend
+## Frontend & backend
 
-A zero-dependency local web app explains the pipeline, shows the real source of
-each stage (pulled live via `inspect.getsource`, so it never drifts), and
-streams each run live — seed → resonance geometry → judging → synthesis:
+One backend: a versioned **FastAPI** app (`rhizome/api.py`) that serves both the
+reader-v2 anchoring spine and the whole exploration/panel surface — the live SSE
+run (seed → resonance geometry → judging → synthesis), embedding compare, the
+workflow source-view (pulled live via `inspect.getsource`, so it never drifts),
+sessions, chat, and reading-rhythm behaviour. Everything above the transport
+lives in `rhizome/reader_service.py` + `rhizome/anchor.py`; the routes are thin.
+
+The UI is a **Vite + React + TypeScript** SPA in `frontend/`, talking to the API
+under `/api/v2`. First augment an existing index with spine offsets and migrate
+legacy quote annotations, then run the two dev servers:
 
 ```bash
-.venv/bin/python serve.py        # open http://localhost:8000
+.venv/bin/python -m rhizome.cli spine          # one-time: add chunk offsets
+.venv/bin/python -m rhizome.cli serve --reload # API on http://127.0.0.1:8010
+                                               # (docs at /docs)
+
+cd frontend && npm install && npm run dev      # UI on http://127.0.0.1:5174
 ```
 
-It works in geometry-only mode without a key; set `ANTHROPIC_API_KEY` first to
-light up the judging + synthesis stages. The retrieval backend is on full
-display: every retrieved passage with its book/author/page/similarity, and the
-genuine-vs-forced verdict per candidate.
+`npm run build` emits `frontend/dist/`, which the API then serves directly at
+`/` (no second server in production). The retrieval backend stays on full
+display, and quote resolution returns an *orphan* instead of guessing when a
+match is weak or ambiguous — a wrong note is worse than a missing one.
+
+It works in geometry-only mode without a key; set `ANTHROPIC_API_KEY` (or a
+Gemini/Groq key) to light up judging, synthesis, chat, and the Plateau study map.
 
 ## Tuning the connections
 
@@ -120,7 +134,6 @@ feel like noise, raise `MIN_SIM`.
 ```
 README.md              this file
 requirements.txt       Python dependencies
-serve.py               web panel + API server (python serve.py)
 books/                 original PDFs / EPUBs / MOBIs (untouched, gitignored)
 data/                  corpus + metadata + human inputs
   catalog.json         author / title / year per book
@@ -131,16 +144,20 @@ index/                 generated: chunks.jsonl + embeddings.npy (gitignored)
 build/                 generated: self-contained HTML maps (gitignored)
 scripts/               convert_books.py · upload_to_r2.py (one-off pipeline)
 docs/                  CHUNKING · FORMATS · OPERATING · ROADMAP · SCHEMA · VISION · PRD-chunking
-frontend/              panel + reader UI
+frontend/              Vite + React + TS SPA (the reader + panel UI)
 tools/                 chunkmap · conceptmap · docgraph · panel generators
-rhizome/               the engine
+rhizome/               the engine + the backend
   config.py            paths + tunable geometry
   catalog.py           corpus metadata
-  chunk.py / chunking.py   Markdown → passages (+ multi-resolution levels)
+  chunk.py / chunking.py   Markdown → passages (+ multi-resolution levels) + spine offsets
   embed.py             local ONNX embeddings (multi-model)
   concepts.py          core-concept extraction (content lens)
   store.py             in-memory index + rhizomatic retrieval geometry
   llm.py               Claude judging (structured) + synthesis
   engine.py            seed → candidates → judge → synthesize → wander
+  anchor.py            durable quote → spine resolver (W3C selectors, orphan-safe)
+  workspace.py         annotations / chats / sessions persistence
+  reader_service.py    domain logic behind the HTTP boundary
+  api.py               FastAPI app (the one backend)
   cli.py               command line
 ```
