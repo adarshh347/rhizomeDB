@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeftRight, X } from "lucide-react";
 
 import { api, type OrphanCandidate } from "../api/client";
@@ -18,6 +18,7 @@ export function NotesRail({
   onPin,
   onDismiss,
   onConnect,
+  activeId = null,
 }: {
   items: Annotation[];
   onJump: (a: Annotation) => void;
@@ -25,9 +26,15 @@ export function NotesRail({
   onPin: (id: string, chunkId: string) => void;
   onDismiss: (id: string) => void;
   onConnect: (chunkId: string) => void;
+  activeId?: string | null;
 }) {
+  const activeRef = useRef<HTMLLIElement>(null);
   const marks = items.filter((a) => a.quote && !a.orphaned);
   const orphans = items.filter((a) => a.orphaned && a.quote);
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
 
   return (
     <section className="rail-panel notes-rail" aria-label="Notes and highlights">
@@ -45,7 +52,12 @@ export function NotesRail({
         {marks.map((a) => {
           const approx = !!a.selector?.approximate;
           return (
-            <li key={a.id} className="row">
+            <li
+              key={a.id}
+              ref={a.id === activeId ? activeRef : undefined}
+              className={`row ${a.id === activeId ? "active" : ""}`}
+              data-aid={a.id}
+            >
               <button
                 className="note-quote"
                 style={{ borderColor: `var(--hl-${a.color || "amber"})` }}

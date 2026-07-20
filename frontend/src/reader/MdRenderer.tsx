@@ -5,6 +5,7 @@ import type { Annotation } from "../api/types";
 import { selectionToAnchor } from "./anchoring";
 import { type HighlightSpan, parseSpine } from "./spine";
 import { SpineView } from "./SpineView";
+import { Marginalia } from "./Marginalia";
 import type { RendererProps } from "./renderer";
 import { useScrollSpy } from "./useScrollSpy";
 
@@ -28,9 +29,17 @@ export function MdRenderer({
   onVisibleChunk,
   spineView = false,
   trackSpine = spineView,
-}: RendererProps & { spineView?: boolean; trackSpine?: boolean }) {
+  activeAnnotation = null,
+  onAnnotationFocus,
+}: RendererProps & {
+  spineView?: boolean;
+  trackSpine?: boolean;
+  activeAnnotation?: string | null;
+  onAnnotationFocus?: (annotation: Annotation) => void;
+}) {
   const [spine, setSpine] = useState<string | null>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const planeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSpine(null);
@@ -159,8 +168,19 @@ export function MdRenderer({
     );
 
   return (
-    <article className="reading-surface" ref={surfaceRef} onMouseUp={onMouseUp}>
-      {spineView ? annotated : <SpineView blocks={blocks} highlights={highlights} />}
-    </article>
+    <div className="md-reader-plane" ref={planeRef}>
+      {!spineView && onAnnotationFocus && (
+        <Marginalia
+          annotations={annotations}
+          surface={surfaceRef}
+          plane={planeRef}
+          activeId={activeAnnotation}
+          onActivate={onAnnotationFocus}
+        />
+      )}
+      <article className="reading-surface" ref={surfaceRef} onMouseUp={onMouseUp}>
+        {spineView ? annotated : <SpineView blocks={blocks} highlights={highlights} />}
+      </article>
+    </div>
   );
 }

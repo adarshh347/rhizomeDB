@@ -162,6 +162,10 @@
 }
 
 /* reading surface (MD) — the book itself: serif, measured, hyphenated. */
+.md-reader-plane {
+  position: relative;
+  width: 100%;
+}
 .reading-surface {
   flex: 1;
   max-width: calc(var(--measure) + 8rem);
@@ -173,6 +177,96 @@
   color: var(--ink);
   hyphens: auto;
   -webkit-hyphens: auto;
+}
+
+/* Markdown-only progressive marginalia. At genuinely wide widths the wrapper
+   reserves a left gutter; the book remains unboxed in the centre and the rail
+   remains the durable fallback. Margin marks use a colour spine and whitespace,
+   never a card border or elevation. */
+.marginalia {
+  display: none;
+}
+
+@media (min-width: 1500px) {
+  .md-reader-plane {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, calc(var(--measure) + 8rem)) 3rem;
+    justify-content: center;
+    align-items: start;
+  }
+  .md-reader-plane > .reading-surface {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    margin: 0;
+  }
+  .marginalia {
+    display: block;
+    position: relative;
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 100%;
+  }
+  .margin-note {
+    position: absolute;
+    right: var(--space-4);
+    width: calc(100% - var(--space-4));
+    padding: 0 0 var(--space-3) var(--space-3);
+    border-left: 2px solid var(--hl-amber);
+    color: var(--ink-soft);
+    transition: top 0.16s ease, background 0.12s ease;
+  }
+  .margin-note::after {
+    content: "";
+    position: absolute;
+    top: 0.72rem;
+    left: 100%;
+    width: var(--space-4);
+    border-top: 1px solid var(--rule);
+  }
+  .margin-note.active {
+    background: color-mix(in srgb, var(--accent-wash) 55%, transparent);
+  }
+  .margin-quote {
+    display: -webkit-box;
+    width: 100%;
+    padding: 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--font-reading);
+    font-size: var(--text-sm);
+    line-height: var(--leading-ui);
+    text-align: left;
+  }
+  .margin-quote:hover {
+    color: var(--accent);
+  }
+  .margin-note-text,
+  .margin-long-note p {
+    margin: var(--space-1) 0 0;
+    font-family: var(--font-body);
+    font-size: var(--text-xs);
+    line-height: var(--leading-ui);
+    color: var(--ink-soft);
+  }
+  .margin-long-note {
+    margin-top: var(--space-1);
+    font-size: var(--text-xs);
+  }
+  .margin-long-note summary {
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .margin-meta {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+    min-height: 1em;
+  }
 }
 
 .spine-p {
@@ -527,5 +621,8 @@ mark.hl.pulse {
   mark.hl.pulse,
   .pdf-page.pulse {
     animation: none;
+  }
+  .margin-note {
+    transition: none;
   }
 }

@@ -35,6 +35,7 @@ export function Reader() {
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const [connChunk, setConnChunk] = useState<string | null>(null);
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
+  const [activeAnnotation, setActiveAnnotation] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const handleRef = useRef<RendererHandle | null>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
@@ -254,6 +255,11 @@ export function Reader() {
               {...rendererProps}
               spineView={spineView}
               trackSpine={railMode === "spine"}
+              activeAnnotation={activeAnnotation}
+              onAnnotationFocus={(annotation) => {
+                setActiveAnnotation(annotation.id);
+                setRailMode("notes");
+              }}
             />
           )}
         </div>
@@ -265,10 +271,17 @@ export function Reader() {
             book={book}
             items={items}
             activeChunk={activeChunk}
+            activeAnnotation={activeAnnotation}
             connectionChunk={connChunk}
             connectionState={connectionState}
-            onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
-            onDelete={remove}
+            onJump={(a) => {
+              setActiveAnnotation(a.id);
+              handleRef.current?.jumpToAnnotation(a);
+            }}
+            onDelete={(id) => {
+              if (activeAnnotation === id) setActiveAnnotation(null);
+              remove(id);
+            }}
             onPin={pin}
             onDismiss={dismiss}
             onOpenChunk={openChunk}
@@ -290,10 +303,17 @@ export function Reader() {
                 book={book}
                 items={items}
                 activeChunk={activeChunk}
+                activeAnnotation={activeAnnotation}
                 connectionChunk={connChunk}
                 connectionState={connectionState}
-                onJump={(a) => handleRef.current?.jumpToAnnotation(a)}
-                onDelete={remove}
+                onJump={(a) => {
+                  setActiveAnnotation(a.id);
+                  handleRef.current?.jumpToAnnotation(a);
+                }}
+                onDelete={(id) => {
+                  if (activeAnnotation === id) setActiveAnnotation(null);
+                  remove(id);
+                }}
                 onPin={pin}
                 onDismiss={dismiss}
                 onOpenChunk={openChunk}
