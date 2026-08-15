@@ -119,7 +119,7 @@ export function ConnectionsPanel({
           ))}
         </select>
         {engineBlurb && (
-          <Tip label={engineBlurb}>
+          <Tip label={plainText(engineBlurb)}>
             <button className="btn-ghost icon" aria-label={`About ${engineLabel}: ${engineBlurb}`}>
               <Info size={14} strokeWidth={1.75} aria-hidden />
             </button>
@@ -138,7 +138,7 @@ export function ConnectionsPanel({
           </>
         )}
       </p>
-      {engineBlurb && <p className="conn-blurb">{engineBlurb}</p>}
+      {engineBlurb && <p className="conn-blurb">{plainText(engineBlurb)}</p>}
       {card && !card.ready && (
         <p className="rail-note conn-not-ready">
           {engineLabel} isn’t ready: {card.reason || "its side data is missing."}
@@ -225,7 +225,7 @@ export function ConnectionsPanel({
                   ))}
                 </div>
               )}
-              {c.why && <div className="conn-why">{c.why}</div>}
+              {c.why && <div className="conn-why">{plainText(c.why)}</div>}
               {v?.genuine && v.bridge_concept && (
                 <div className="conn-bridge">
                   <span className="badge-genuine">genuine</span> {v.bridge_concept}
@@ -255,7 +255,7 @@ export function ConnectionsPanel({
                 {c.rank != null && c.corpus_size > 0 && (
                   <Tip label="rank of this passage in the full similarity sort — how non-obvious the pick is">
                     <span className="conn-rank mono">
-                      #{c.rank} of {c.corpus_size}
+                      #{c.rank + 1} of {c.corpus_size}
                     </span>
                   </Tip>
                 )}
@@ -326,56 +326,45 @@ function CompareTable({
   const n = Math.max(1, mine?.items?.length ?? 0);
   return (
     <div className="conn-compare">
-      <div className="conn-compare-scroll">
-        <table className="conn-compare-table">
-          <caption className="sr-only">Top three picks per engine</caption>
-          <tbody>
-            {data.results.map((r) => (
-              <tr key={r.key} className={r.key === selected ? "selected" : ""}>
-                <th scope="row">{r.label}</th>
-                {r.error ? (
-                  <td colSpan={3} className="conn-compare-err">
-                    {r.error}
-                  </td>
-                ) : (r.items ?? []).length === 0 ? (
-                  <td colSpan={3} className="conn-compare-empty">
-                    nothing
-                  </td>
-                ) : (
-                  [0, 1, 2].map((i) => {
-                    const it = (r.items ?? [])[i];
-                    return (
-                      <td key={i}>
-                        {it && (
-                          <Link
-                            to={chunkHref(it.chunk_id)}
-                            className={mineIds.has(it.chunk_id) && r.key !== selected ? "shared" : ""}
-                            title={`${it.author} · ${it.title}${it.page != null ? ` p.${it.page}` : ""}`}
-                          >
-                            {clip(`${it.author} · ${it.title}`, 26)}
-                            {it.page != null && <span className="mono"> p.{it.page}</span>}
-                          </Link>
-                        )}
-                      </td>
-                    );
-                  })
+      <ul className="conn-compare-list" aria-label="Top three picks per engine">
+        {data.results.map((r) => {
+          const items = (r.items ?? []).slice(0, 3);
+          const shared = items.filter((i) => mineIds.has(i.chunk_id)).length;
+          const isMine = r.key === selected;
+          return (
+            <li key={r.key} className={`conn-compare-row ${isMine ? "selected" : ""}`}>
+              <div className="conn-compare-head">
+                <span className="conn-compare-label">{r.label}</span>
+                {!isMine && !r.error && items.length > 0 && (
+                  <span className="conn-compare-shared mono" title={`picks shared with ${mine?.label ?? "the selected engine"}`}>
+                    {shared}/{n} shared
+                  </span>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {mine && (
-        <p className="conn-overlap mono">
-          {data.results
-            .filter((r) => r.key !== selected && !r.error)
-            .map((r) => {
-              const shared = (r.items ?? []).filter((i) => mineIds.has(i.chunk_id)).length;
-              return `shares ${shared}/${n} with ${r.label}`;
-            })
-            .join(" · ") || "no other engine to compare with"}
-        </p>
-      )}
+              </div>
+              {r.error ? (
+                <div className="conn-compare-err">{r.error}</div>
+              ) : items.length === 0 ? (
+                <div className="conn-compare-empty">nothing</div>
+              ) : (
+                <div className="conn-compare-picks">
+                  {items.map((it, i) => (
+                    <Link
+                      key={it.chunk_id}
+                      to={chunkHref(it.chunk_id)}
+                      className={mineIds.has(it.chunk_id) && !isMine ? "shared" : ""}
+                      title={`${it.author} · ${it.title}${it.page != null ? ` p.${it.page}` : ""}`}
+                    >
+                      <span className="mono conn-compare-n">{i + 1}</span>
+                      {clip(plainText(it.title), 22)}
+                      {it.page != null && <span className="mono"> p.{it.page}</span>}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
