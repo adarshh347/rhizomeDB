@@ -3,6 +3,14 @@
 > Grounded in `docs/PRD-constellatory-retrieval.md` (Phases 0/3/5 + the §6 harness),
 > the three audits in `docs/audits/`, and the code as of `13c0962`. Written before
 > building; the "Status" column is filled in as increments land.
+>
+> **Amendments made while building** (each is in the code and in `docs/ENGINES.md`):
+> the *noise-floor gate* (§1) was not in the plan — the harness's first run showed
+> every vector engine answering gibberish, so a per-model calibrated floor on the
+> seed's best match became part of the contract; `walk` builds its own per-hop
+> band (visited books excluded *before* the cut) instead of post-filtering
+> `Store.connections`; the compare view is a stacked list, not a table, because a
+> three-column table cannot fit the 20rem rail.
 
 ## 0. What this delivers
 
@@ -110,12 +118,12 @@ count. Writes `index/eval_engines.json`; CLI prints a table; API serves it.
 
 | # | Increment | Gate | Status |
 |---|---|---|---|
-| 1 | Contract + `plain` + `band` + parity test | `band` byte-identical to `Store.connections` on 30 seeds; unittest green | |
-| 2 | `lexical` `hybrid` `echo` `spread` `walk` `marks` `concept` `structural` `fused` | each has unit tests on `Context.from_arrays`; each returns `[]` on an empty band; registry lists 11 | |
-| 3 | API + CLI + `run_explore(engine=)` | `/engines`, `/connect`, `/connect/compare` covered by `tests/test_api.py`-style tests | |
-| 4 | Eval harness | `eval-engines` runs on the real index; report in `index/`; `/engines/eval` serves it | |
-| 5 | Reader: picker · disclosure · compare · Connect-from-selection · U7 · U9 | `tsc --noEmit` + `vite build` clean; live check in the browser per engine | |
-| 6 | Docs: README section, this plan's status column, `docs/ENGINES.md` | | |
+| 1 | Contract + `plain` + `band` + parity test | `band` byte-identical to `Store.connections` on 30 seeds; unittest green | ✓ `818a01b` — parity on fixture + real index (30 seeds) |
+| 2 | `lexical` `hybrid` `echo` `spread` `walk` `marks` `concept` `structural` `fused` | each has unit tests on `Context.from_arrays`; each returns `[]` on an empty band; registry lists 11 | ✓ `1104fe9` — 11 registered, 10 ready on the real index (structural needs an LLM key to build) |
+| 3 | API + CLI + `run_explore(engine=)` | `/engines`, `/connect`, `/connect/compare` covered by `tests/test_api.py`-style tests | ✓ `1104fe9` — `tests/test_api_engines.py`; band via `/explore` verified byte-identical |
+| 4 | Eval harness | `eval-engines` runs on the real index; report in `index/`; `/engines/eval` serves it | ✓ `1104fe9` + `7cc8056` — first finding: noise_fp 1.00 → calibrated noise floor → 0.33 |
+| 5 | Reader: picker · disclosure · compare · Connect-from-selection · U7 · U9 | `tsc --noEmit` + `vite build` clean; live check in the browser per engine | ✓ `ab8d770` — verified live at 1568px (band, walk, marks, fused, structural-not-ready, compare, Connect-from-selection, U7, U9); narrow viewport still unobserved |
+| 6 | Docs: README section, this plan's status column, `docs/ENGINES.md` | | ✓ this commit |
 
 ## 7. Out of scope (deliberately)
 
