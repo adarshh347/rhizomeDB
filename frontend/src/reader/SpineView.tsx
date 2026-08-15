@@ -15,6 +15,7 @@ function renderSegment(seg: Segment, key: number) {
     seg.mark?.approximate ? "approx" : "",
     seg.mark?.hasNote ? "has-note" : "",
     seg.mark?.startsHere ? "mark-start" : "",
+    seg.mark?.endsHere ? "mark-end" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -43,7 +44,15 @@ function renderSegment(seg: Segment, key: number) {
 // render exactly as for any paragraph, so anchoring is untouched.
 const FIGURE_RE = /^(?:⇒|==>)\s*picture\b.*intentionally omitted\s*(?:⇐|<==)$/;
 
-function BlockView({ block, highlights }: { block: Block; highlights: HighlightSpan[] }) {
+function BlockView({
+  block,
+  highlights,
+  nextStart,
+}: {
+  block: Block;
+  highlights: HighlightSpan[];
+  nextStart: number;
+}) {
   if (block.kind === "page") {
     return (
       <div className="spine-page" data-s={block.start} aria-hidden>
@@ -51,7 +60,7 @@ function BlockView({ block, highlights }: { block: Block; highlights: HighlightS
       </div>
     );
   }
-  const segs = segmentsFor(block.runs, highlights);
+  const segs = segmentsFor(block.runs, highlights, nextStart);
   const children = segs.map(renderSegment);
   if (block.kind === "heading") {
     const H = `h${Math.min(block.level + 1, 6)}` as keyof React.JSX.IntrinsicElements;
@@ -70,9 +79,19 @@ export function SpineView({
   highlights: HighlightSpan[];
 }) {
   // Re-segment only when the highlight set changes (not on every render).
-  const painted = useMemo(
-    () => blocks.map((b, i) => <BlockView key={i} block={b} highlights={highlights} />),
-    [blocks, highlights],
-  );
+  const painted = useMemo(() => {
+    // spine offset of the first text of the next text-bearing block, so a mark
+    // that continues into it does not close early (U7)
+    const nexts: number[] = new Array(blocks.length).fill(Infinity);
+    let next = Infinity;
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      nexts[i] = next;
+      const b = blocks[i];
+      if (b.kind !== "page" && b.runs.length) next = b.runs[0].start;
+    }
+    return blocks.map((b, i) => (
+      <BlockView key={i} block={b} highlights={highlights} nextStart={nexts[i]} />
+    ));
+  }, [blocks, highlights]);
   return <>{painted}</>;
 }

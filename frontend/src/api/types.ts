@@ -119,19 +119,125 @@ export interface ExploreSeed {
   text: string;
   author: string | null;
   book_id: string | null;
+  chunk_id?: string | null;
+  embed_key?: string;
   embed_label: string;
 }
 
-export interface ExploreCandidate {
+// One pick from any retrieval engine — the ITEM shape shared by /connect,
+// /connect/compare and the SSE 'candidates' event. The first block is always
+// present; the extras appear only when the engine that produced the pick has
+// something to disclose (a walk's hop, a mark's note, shared concepts…).
+export interface ConnectItem {
   index: number;
+  chunk_id: string;
   author: string;
   title: string;
   page: number | null;
-  chunk_id: string;
-  similarity: number;
-  direct_dissimilarity: number;
-  structural_similarity: number | null;
   text: string;
+  similarity: number | null;
+  direct_dissimilarity: number | null;
+  structural_similarity: number | null;
+  rank: number | null;
+  corpus_size: number;
+  score: number | null;
+  path: string;
+  why: string;
+  // engine-specific extras
+  hop?: number;
+  from_id?: string;
+  hop_similarity?: number;
+  annotation_id?: string;
+  note?: string;
+  quote?: string;
+  kind?: string;
+  color?: string;
+  concepts?: string[];
+  activation?: number;
+  gap?: number;
+  abstraction?: string;
+  dense_rank?: number;
+  lexical_rank?: number;
+  distance?: number;
+  heading?: string;
+  covers?: number;
+  paths?: string[];
+  contributions?: Record<string, number>;
+}
+
+// The SSE stream's candidates are ITEMs; the old name stays for callers.
+export type ExploreCandidate = ConnectItem;
+
+export interface EngineParam {
+  type: string;
+  default: unknown;
+  help: string;
+}
+
+export interface EngineCard {
+  key: string;
+  label: string;
+  blurb: string;
+  needs: string[];
+  params: Record<string, EngineParam>;
+  ready: boolean;
+  reason: string;
+}
+
+export interface EngineRef {
+  key: string;
+  label: string;
+  blurb: string;
+}
+
+export interface ConnectResponse {
+  engine: EngineRef;
+  seed: ExploreSeed;
+  items: ConnectItem[];
+  params: Record<string, unknown>;
+  ms: number;
+  note: string | null;
+}
+
+export interface CompareResult {
+  key: string;
+  label: string;
+  items: ConnectItem[];
+  ms: number;
+  error?: string;
+}
+
+export interface CompareResponse {
+  seed: ExploreSeed;
+  results: CompareResult[];
+  overlap: { keys: string[]; matrix: number[][] };
+}
+
+export interface EngineEvalRow {
+  key: string;
+  label: string;
+  ready: boolean;
+  n_seeds: number;
+  mean_k: number;
+  empty_rate: number;
+  mean_rank_pct: number;
+  median_rank: number;
+  ild: number;
+  book_spread: number;
+  cross_book_rate: number;
+  noise_fp_rate: number;
+  ms_per_seed: number;
+  bridge_recall: number | null;
+  n_bridges: number;
+}
+
+export interface EngineEvalReport {
+  built: string;
+  embed_key: string;
+  k: number;
+  n_seeds: number;
+  n_noise: number;
+  engines: EngineEvalRow[];
 }
 
 export interface ExploreVerdict {

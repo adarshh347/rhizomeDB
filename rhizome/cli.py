@@ -231,6 +231,123 @@ def cmd_spine(_):
     print(f"Annotation selectors: {annotations}")
 
 
+# ---- the mini-engines -------------------------------------------------------
+def _seed_kwargs(args):
+    theme = getattr(args, "theme", None)
+    if getattr(args, "note", None):
+        theme = _theme_from_note(args.note)
+    chunk = getattr(args, "chunk", None)
+    if theme is None and chunk is None:
+        return {"random": True}
+    return {"theme": theme, "chunk_id": chunk}
+
+
+def _print_pick(i, p, width=90):
+    page = f", p.{p['page']}" if p.get("page") else ""
+    rank = f"#{p['rank'] + 1} of {p['corpus_size']}" if p.get("rank") is not None else "rank —"
+    sim = f"sim {p['similarity']:.3f}" if p.get("similarity") is not None else "sim —"
+    score = f"score {p['score']}" if p.get("score") is not None else ""
+    print(f"  [{i}] {p.get('author') or 'Unknown'} — {p.get('title') or p['book_id']}{page}"
+          f"   ({sim} · {rank}{' · ' + score if score else ''})")
+    print(_wrap(f"why: {p.get('why', '')}", width=width, indent="      "))
+    extras = {k: p[k] for k in ("hop", "distance", "concepts", "note", "quote",
+                                "annotation_id", "paths") if p.get(k) not in (None, [], "")}
+    if extras:
+        print(_wrap(" · ".join(f"{k}: {v}" for k, v in extras.items()), width=width, indent="      "))
+    print(_wrap(p["text"][:280] + ("…" if len(p["text"]) > 280 else ""), width=width, indent="      "))
+    print()
+
+
+def cmd_engines(_):
+    from . import reader_service as rs
+    cards = rs.engines_status()["engines"]
+    print(f"{'key':12s} {'label':32s} {'ready':6s} reason")
+    for c in cards:
+        print(f"{c['key']:12s} {c['label'][:32]:32s} {'yes' if c['ready'] else 'no':6s} {c['reason']}")
+
+
+def cmd_connect(args):
+    import json
+    from . import reader_service as rs
+    from . import engines
+    ctx = rs.get_context()
+    seed = rs.resolve_engine_seed(ctx, **_seed_kwargs(args))
+    eng = engines.get(args.engine)
+    ok, why = eng.ready(ctx)
+    if not ok:
+        raise SystemExit(f"engine {args.engine!r} not ready: {why}")
+    picks = eng.candidates(seed, ctx, k=args.candidates)
+    if args.json:
+        print(json.dumps({"engine": eng.key, "seed": seed.label,
+                          "items": [rs._item(i, p) for i, p in enumerate(picks)]}, indent=1))
+        return
+    print("=" * 90)
+    print(f"SEED — {seed.label}")
+    print(_wrap(seed.text[:400] + ("…" if len(seed.text) > 400 else "")))
+    print()
+    print(f"{eng.label} [{eng.key}] — {len(picks)} pick(s):\n")
+    for i, p in enumerate(picks):
+        _print_pick(i, p)
+    if not picks:
+        print("  (nothing cleared this engine's floors — no padding)")
+
+
+def cmd_compare_engines(args):
+    from . import reader_service as rs
+    kw = _seed_kwargs(args)
+    mode = "theme" if kw.get("theme") is not None else "chunk" if kw.get("chunk_id") else "random"
+    value = kw.get("theme") or kw.get("chunk_id") or ""
+    keys = [k.strip() for k in (args.engines or "").split(",") if k.strip()] or None
+    rep = rs.compare_engines(mode=mode, value=value, k=args.candidates, engine_keys=keys)
+    print("=" * 90)
+    print(f"SEED — {rep['seed']['label']}")
+    print(_wrap(rep["seed"]["text"][:300] + ("…" if len(rep["seed"]["text"]) > 300 else "")))
+    for r in rep["results"]:
+        print()
+        print("-" * 90)
+        head = f"{r['label']} [{r['key']}]  {r['ms']} ms"
+        print(head + (f"  — ERROR: {r['error']}" if r.get("error") else ""))
+        for it in r["items"]:
+            _print_pick(it["index"], {**it, "id": it["chunk_id"]})
+        if not r["items"] and not r.get("error"):
+            print("  (empty)")
+    print("-" * 90)
+    ks = rep["overlap"]["keys"]
+    print("Jaccard overlap of pick sets:")
+    print(" " * 12 + "".join(f"{k[:8]:>9s}" for k in ks))
+    for k, row in zip(ks, rep["overlap"]["matrix"]):
+        print(f"{k[:11]:12s}" + "".join(f"{v:9.2f}" for v in row))
+
+
+def cmd_build_structural(args):
+    from .engines import structural
+    from . import llm
+    client = llm.get_client()
+    if client is None:
+        raise SystemExit("build-structural needs an LLM client (set GROQ/GEMINI/ANTHROPIC key)")
+    out = structural.build_structural(embed_key=args.model, client=client,
+                                      books=args.book, sample=args.sample)
+    print(out)
+
+
+def cmd_eval_engines(args):
+    from . import eval_engines
+    keys = [k.strip() for k in (args.engines or "").split(",") if k.strip()] or None
+    from . import reader_service as rs
+    stored = eval_engines.load_report()
+    report = None if (args.refresh or keys) else stored
+    if report is None:
+        fresh = eval_engines.build_report(rs.get_context(), k=args.k, engine_keys=keys)
+        # a subset run (--engines a,b) refreshes those rows inside the stored
+        # report instead of replacing the whole table the API serves
+        report = eval_engines.merge_report(stored if keys else None, fresh)
+        path = eval_engines.save_report(report)
+        print(f"wrote {path}")
+    else:
+        print(f"loaded {eval_engines.REPORT_PATH} (pass --refresh to rebuild)")
+    print(eval_engines.format_table(report))
+
+
 def cmd_reader_api(args):
     try:
         import uvicorn
@@ -333,6 +450,29 @@ def main():
     w = sub.add_parser("wander", help="follow connections as new seeds"); add_seed_args(w)
     w.add_argument("--steps", type=int, default=3)
     w.set_defaults(func=cmd_wander)
+
+    # -- the mini-engines (rhizome/engines) --
+    sub.add_parser("engines", help="list the retrieval engines + readiness"
+                   ).set_defaults(func=cmd_engines)
+    cn = sub.add_parser("connect", help="one engine's picks for a seed (geometry only)")
+    add_seed_args(cn)
+    cn.add_argument("--engine", default="band", help="engine key (see: rhizome engines)")
+    cn.add_argument("--json", action="store_true", help="print the picks as JSON items")
+    cn.set_defaults(func=cmd_connect)
+    ce = sub.add_parser("compare-engines", help="every ready engine's picks for one seed + overlap")
+    add_seed_args(ce)
+    ce.add_argument("--engines", default="", help="comma list of engine keys (default: all ready)")
+    ce.set_defaults(func=cmd_compare_engines)
+    bs = sub.add_parser("build-structural", help="abstract every chunk's move (LLM) → structural index")
+    bs.add_argument("--model", default=config.DEFAULT_EMBED, help="embedding model key")
+    bs.add_argument("--sample", type=int, default=None, help="cap chunks abstracted")
+    bs.add_argument("--book", nargs="+", default=None, help="scope to book id(s)")
+    bs.set_defaults(func=cmd_build_structural)
+    ev = sub.add_parser("eval-engines", help="constellatory eval harness over every engine")
+    ev.add_argument("--k", type=int, default=config.N_CANDIDATES)
+    ev.add_argument("--engines", default="", help="comma list of engine keys (default: all)")
+    ev.add_argument("--refresh", action="store_true", help="recompute even if a report is cached")
+    ev.set_defaults(func=cmd_eval_engines)
 
     args = p.parse_args()
     args.func(args)

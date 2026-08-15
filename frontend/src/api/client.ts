@@ -5,10 +5,23 @@ import type {
   BookFormat,
   BookPayload,
   BookSummary,
+  CompareResponse,
+  ConnectResponse,
   CreateAnnotationBody,
   CreateAnnotationResult,
+  EngineCard,
+  EngineEvalReport,
   SpinePayload,
 } from "./types";
+
+export { sse } from "./sse";
+export type { SseControl, SseHandlers } from "./sse";
+
+// A retrieval seed: a chunk id, or free text (a selected sentence, a theme).
+export interface ConnSeed {
+  mode: "chunk" | "theme";
+  value: string;
+}
 
 export interface UploadResult {
   book_id: string;
@@ -134,6 +147,25 @@ export const api = {
     req<{ ok: boolean }>(`/orphans/${encodeURIComponent(id)}/dismiss`, {
       method: "POST",
     }),
+
+  // --- retrieval engines (geometry only, no LLM) ---------------------------
+  engines: () =>
+    req<{ engines: EngineCard[]; default: string }>("/engines"),
+
+  connect: (opts: ConnSeed & { engine: string; candidates?: number }) =>
+    req<ConnectResponse>(
+      `/connect?engine=${encodeURIComponent(opts.engine)}&mode=${opts.mode}` +
+        `&value=${encodeURIComponent(opts.value)}&candidates=${opts.candidates ?? 8}`,
+    ),
+
+  compareEngines: (opts: ConnSeed & { candidates?: number; engines?: string[] }) =>
+    req<CompareResponse>(
+      `/connect/compare?mode=${opts.mode}&value=${encodeURIComponent(opts.value)}` +
+        `&candidates=${opts.candidates ?? 5}` +
+        (opts.engines?.length ? `&engines=${encodeURIComponent(opts.engines.join(","))}` : ""),
+    ),
+
+  enginesEval: () => req<EngineEvalReport>("/engines/eval"),
 
   // Multipart upload — let the browser set the boundary Content-Type, so this
   // bypasses the JSON `req` helper.

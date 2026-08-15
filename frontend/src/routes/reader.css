@@ -345,8 +345,9 @@ mark.hl.approx {
   text-decoration-style: dotted;
   text-decoration-color: var(--approx);
 }
-/* A note is more than pigment: the first painted segment carries a restrained
-   bookish mark. It stays inline (not marginalia) and never changes data-s runs. */
+/* A note is more than pigment: the first painted segment opens a restrained
+   bookish bracket and the LAST segment closes it (a mark split across runs is
+   several <mark>s — U7). Inline, not marginalia; never changes data-s runs. */
 mark.hl.has-note.mark-start::before {
   content: "《";
   margin-right: 0.08em;
@@ -354,7 +355,7 @@ mark.hl.has-note.mark-start::before {
   font-family: var(--font-reading);
   font-size: 0.72em;
 }
-mark.hl.has-note.mark-start::after {
+mark.hl.has-note.mark-end::after {
   content: "》";
   margin-left: 0.08em;
   color: var(--accent);
@@ -363,7 +364,7 @@ mark.hl.has-note.mark-start::after {
 }
 /* One small honesty marker supplements the dotted underline without turning
    uncertain text into a warning badge. */
-mark.hl.approx.mark-start::after {
+mark.hl.approx.mark-end::after {
   content: "≈";
   margin-left: 0.18em;
   color: var(--approx);
@@ -371,7 +372,7 @@ mark.hl.approx.mark-start::after {
   font-size: 0.62em;
   vertical-align: super;
 }
-mark.hl.has-note.approx.mark-start::after {
+mark.hl.has-note.approx.mark-end::after {
   content: "》 ≈";
 }
 mark.hl.pulse {
@@ -424,6 +425,12 @@ mark.hl.pulse {
 }
 .sel-btn:hover {
   background: var(--paper-sunken);
+}
+.sel-btn.sel-connect {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent);
 }
 
 /* inline error (connections stream, etc.) */

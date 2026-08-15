@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { Annotation } from "../api/types";
+import { plainText } from "./text";
 
 const WIDE_QUERY = "(min-width: 1500px)";
 const GAP = 12;
@@ -105,7 +106,8 @@ export function Marginalia({
   return (
     <aside className="marginalia" ref={layerRef} aria-label="Notes in the margin">
       {marks.map((annotation) => {
-        const long = (annotation.note?.length ?? 0) > 150;
+        const note = plainText(annotation.note ?? "");
+        const long = note.length > 150;
         return (
           <article
             key={annotation.id}
@@ -121,16 +123,16 @@ export function Marginalia({
             data-aid={annotation.id}
           >
             <button className="margin-quote" onClick={() => onActivate(annotation)}>
-              “{annotation.quote}”
+              “{plainText(annotation.quote)}”
             </button>
-            {annotation.note &&
+            {note &&
               (long ? (
                 <details className="margin-long-note">
-                  <summary>{annotation.note.slice(0, 112)}…</summary>
-                  <p>{annotation.note}</p>
+                  <summary>{note.slice(0, 112)}…</summary>
+                  <p>{note}</p>
                 </details>
               ) : (
-                <p className="margin-note-text">{annotation.note}</p>
+                <p className="margin-note-text">{note}</p>
               ))}
             <div className="margin-meta">
               {annotation.selector?.approximate && <span className="mark-approx">≈</span>}
