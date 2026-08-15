@@ -111,6 +111,54 @@ class ParityTests(unittest.TestCase):
             self.assertEqual(self._strip(via), direct, f"parity broke on {cid}")
 
 
+class NoiseFloorTests(unittest.TestCase):
+    """The willingness to find nothing: a gated context returns [] from every
+    gated engine when the seed's best match sits below the floor; plain never
+    gates; an ungated context (tests, uncalibrated models) is unaffected."""
+
+    def setUp(self):
+        self.chunks, self.vecs = make_corpus()
+        self.ctx = Context.from_arrays(self.chunks, self.vecs)
+        rng = np.random.default_rng(3)
+        v = rng.normal(size=self.vecs.shape[1]).astype(np.float32)
+        v -= self.vecs.T @ (self.vecs @ v) / len(self.vecs)
+        self.noise = Seed(text="word salad", vec=v / np.linalg.norm(v))
+        self.best = float((self.vecs @ self.noise.vec).max())
+
+    def test_ungated_context_is_unaffected(self):
+        self.assertIsNone(self.ctx.noise_floor)
+        picks = engines.get("band").candidates(self.noise, self.ctx, k=4, min_sim=-1.0)
+        self.assertTrue(picks)
+
+    def test_gated_context_returns_nothing_from_gated_engines(self):
+        self.ctx.noise_floor = self.best + 0.05
+        for eng in engines.all_engines():
+            if not eng.ready(self.ctx)[0] or not getattr(eng, "noise_gate", False):
+                continue
+            with self.subTest(engine=eng.key):
+                self.assertEqual(eng.candidates(self.noise, self.ctx, k=4), [])
+        # plain is the baseline that always answers
+        self.assertTrue(engines.get("plain").candidates(self.noise, self.ctx, k=4))
+
+    def test_gate_opens_when_the_seed_resonates(self):
+        self.ctx.noise_floor = self.best - 0.05
+        picks = engines.get("band").candidates(self.noise, self.ctx, k=4, min_sim=-1.0)
+        self.assertTrue(picks)
+        from rhizome.engines.base import best_match
+        band = engines.get("band")
+        self.ctx.noise_floor = None
+        seed = next(s for s in (self.ctx.seed_from_chunk(c["id"]) for c in self.chunks)
+                    if band.candidates(s, self.ctx, k=4))
+        self.ctx.noise_floor = best_match(seed, self.ctx) - 0.01
+        self.assertTrue(band.candidates(seed, self.ctx, k=4))
+
+    def test_from_store_reads_the_calibration(self):
+        from rhizome.engines.base import _ArrayStore
+        ctx = Context.from_store(_ArrayStore(self.chunks, self.vecs), "bge-base")
+        self.assertEqual(ctx.noise_floor, config.noise_floor("bge-base"))
+        self.assertIsNotNone(ctx.noise_floor)
+
+
 class PlainTests(unittest.TestCase):
     def test_plain_is_nearest_and_includes_same_book(self):
         chunks, vecs = make_corpus()

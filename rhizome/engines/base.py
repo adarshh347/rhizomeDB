@@ -26,6 +26,7 @@ Contract rules:
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -97,12 +98,18 @@ class Context:
     """
     store: Any
     embed_key: str = config.DEFAULT_EMBED
+    # The willingness-to-find-nothing gate: an engine returns [] when the
+    # seed's best match in the corpus sits below this cosine (see
+    # `clears_noise_floor`). None = ungated (uncalibrated model, or an in-memory
+    # test corpus). `from_store` sets it from config.noise_floor(embed_key).
+    noise_floor: float | None = None
     _side: dict[str, Any] = field(default_factory=dict, repr=False)
 
     # -- construction -------------------------------------------------------
     @classmethod
     def from_store(cls, store, embed_key: str = config.DEFAULT_EMBED) -> "Context":
-        return cls(store=store, embed_key=embed_key)
+        return cls(store=store, embed_key=embed_key,
+                   noise_floor=config.noise_floor(embed_key))
 
     @classmethod
     def from_arrays(cls, chunks: list[dict], vecs: np.ndarray | None,
@@ -190,6 +197,33 @@ def similarities(seed: Seed, ctx: Context) -> np.ndarray | None:
     return ctx.vecs @ seed.vec
 
 
+def best_match(seed: Seed, ctx: Context) -> float | None:
+    """The seed's strongest cosine to any corpus chunk other than itself —
+    the number the noise floor gate is applied to."""
+    sims = similarities(seed, ctx)
+    if sims is None or len(sims) == 0:
+        return None
+    if seed.chunk_id is not None:
+        i = ctx.index_of(seed.chunk_id)
+        if i is not None:
+            sims = sims.copy()
+            sims[i] = -np.inf
+            if len(sims) == 1:
+                return None
+    return float(sims.max())
+
+
+def clears_noise_floor(seed: Seed, ctx: Context) -> bool:
+    """False when the corpus holds nothing that resonates with the seed above
+    the context's calibrated floor — the engine should then return [] rather
+    than eight confident-looking picks. Always True when the context is
+    ungated or the seed has no vector (lexical engines gate on term matches)."""
+    if ctx.noise_floor is None or seed.vec is None or not ctx.has_vectors:
+        return True
+    best = best_match(seed, ctx)
+    return best is None or best >= ctx.noise_floor
+
+
 def ranks_from(sims: np.ndarray) -> np.ndarray:
     """rank[i] = position of chunk i in the descending similarity sort."""
     order = np.argsort(-sims, kind="stable")
@@ -262,6 +296,28 @@ class BaseEngine:
     blurb = ""
     needs: list[str] = ["vectors"]
     params: dict = {}
+    # The willingness-to-find-nothing gate (see `clears_noise_floor`). Every
+    # subclass's `candidates()` is wrapped so a seed that resonates with
+    # nothing returns [] before the engine's own geometry runs. Set False on
+    # engines that must always answer (plain nearest-neighbour — the baseline)
+    # or that gate on something other than cosine (lexical: term matches).
+    noise_gate = True
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        inner = cls.__dict__.get("candidates")
+        if inner is None or getattr(inner, "_noise_gated", False):
+            return
+
+        @functools.wraps(inner)
+        def gated(self, seed, ctx, *, k=config.N_CANDIDATES, **params):
+            if self.noise_gate and not clears_noise_floor(seed, ctx):
+                return []
+            return inner(self, seed, ctx, k=k, **params)
+
+        gated._noise_gated = True
+        gated.__wrapped__ = inner
+        cls.candidates = gated
 
     def ready(self, ctx: Context) -> tuple[bool, str]:
         if "vectors" in self.needs and not ctx.has_vectors:

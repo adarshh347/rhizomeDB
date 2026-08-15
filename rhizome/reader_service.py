@@ -163,6 +163,19 @@ def _resolve_by_mode(ctx, mode, value):
         random=(mode == "random"))
 
 
+def _empty_reason(eng, seed, ctx) -> str:
+    """Why an engine returned nothing — names the noise floor when that is
+    what fired, so 'nothing' reads as a finding, not a failure."""
+    from .engines import base as _base
+    if getattr(eng, "noise_gate", False) and not _base.clears_noise_floor(seed, ctx):
+        best = _base.best_match(seed, ctx)
+        return (f"Nothing in the corpus resonates with this seed above the noise floor "
+                f"(best match {best:.3f} < {ctx.noise_floor:.2f}) — so no connection is offered.")
+    if eng.key == "band":
+        return "No candidates in the resonance band for this seed."
+    return f"Nothing cleared the {eng.label} engine's floors for this seed."
+
+
 def connect(engine=engines.DEFAULT_ENGINE, *, mode="chunk", value="",
             k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED, **params):
     """One engine's picks for one seed — geometry only, no LLM (the /connect
@@ -186,7 +199,7 @@ def connect(engine=engines.DEFAULT_ENGINE, *, mode="chunk", value="",
             "seed": _seed_payload(seed, embed_key),
             "items": [_item(i, p) for i, p in enumerate(picks)],
             "params": used, "ms": ms,
-            "note": None if picks else "Nothing cleared this engine's floors for this seed."}
+            "note": None if picks else _empty_reason(eng, seed, ctx)}
 
 
 def _jaccard(a: set, b: set, same: bool) -> float:
@@ -628,9 +641,7 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False,
         _emit_tokens(emit, eng, "abstract (structural reading)")
 
     if not candidates:
-        emit("note", {"text": "No candidates in the resonance band for this seed."
-                              if retr.key == "band" else
-                              f"No candidates from the {retr.label} engine for this seed."})
+        emit("note", {"text": _empty_reason(retr, seed_obj, ctx)})
         emit("done", {}); return
     if eng.client is None:
         emit("note", {"text": "Geometry-only mode — set GROQ_API_KEY (or GEMINI/"

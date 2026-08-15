@@ -20,6 +20,7 @@ class PlainEngine(BaseEngine):
              "Ordinary retrieval-augmented lookup; the baseline the constellatory "
              "engines are measured against.")
     needs = ["vectors"]
+    noise_gate = False   # the baseline always answers — that is the point of it
     params = {
         "include_seed": {"type": "bool", "default": False,
                          "help": "keep the seed passage itself if it is a corpus chunk"},

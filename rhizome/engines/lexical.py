@@ -174,6 +174,7 @@ class LexicalEngine(BaseEngine):
              "end of the dial — and the 'obvious' the resonance band throws away, "
              "made visible.")
     needs = ["chunks"]
+    noise_gate = False   # gates on term matches, not cosine
     params = {
         "exclude_same_book": {"type": "bool", "default": EXCLUDE_SAME_BOOK,
                               "help": "drop hits from the seed's own book"},
