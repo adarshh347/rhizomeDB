@@ -1,11 +1,25 @@
-"""`band` — the resonance band. Today's constellatory engine, unchanged.
+"""`band` — the resonance band. Today's constellatory geometry, plus the gate.
 
 A thin wrapper over `Store.connections()`: drop near-duplicates (≥ dedup
 ceiling), skip the `skip_top` most-similar (the obvious), stop below the
-`min_sim` floor, exclude the seed's own book, then MMR-diversify. This engine is
-the **parity oracle** — `tests/test_engines.py` asserts its picks are identical
-to a direct `Store.connections()` call, so refactors elsewhere can never drift
-the reference geometry.
+`min_sim` floor, exclude the seed's own book, then MMR-diversify.
+
+**Parity, and its one qualification.** The *geometry* is byte-identical to a
+direct `Store.connections()` call — this engine is the parity oracle
+(`tests/test_engines.py::ParityTests`, on the fixture and on the real index).
+But, like every constellatory engine, it is *also* subject to the context's
+noise floor: `BaseEngine.__init_subclass__` wraps `candidates()` in
+`base.clears_noise_floor(seed, ctx)` (`rhizome/engines/base.py`; the floor
+itself is `config.NOISE_FLOOR`, read by `Context.from_store`). So on a gated
+context a seed whose best match in the corpus sits below the floor gets `[]`
+here where `Store.connections()` would still have returned k picks. That is
+deliberate — the willingness to find nothing (VISION.md; PRD §6c) — not a
+parity break: above the floor the two are identical, below it the gate is the
+only difference (`tests/test_explore_path.py::BandGateParityTests` proves both
+halves). Free-text *theme* seeds are what actually gate; passage seeds
+essentially never do (measured: min best cross-book cosine ≥ 0.73 vs a 0.50
+floor). `Context.from_arrays` (the unit-test path) is ungated, which is why the
+fixture parity test cannot see the gate at all.
 """
 from __future__ import annotations
 

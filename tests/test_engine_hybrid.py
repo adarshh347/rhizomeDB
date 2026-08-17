@@ -5,6 +5,7 @@ arithmetic stub `hybrid._lexical_ranked` so they hold regardless of BM25's
 exact scores; the end-to-end tests skip when `lexical` is not importable.
 """
 import os
+import re
 import sys
 import unittest
 from unittest import mock
@@ -187,6 +188,101 @@ class HybridTests(unittest.TestCase):
         self.assertNotIn("alpha#0003", [p["id"] for p in picks])
         self.assertTrue(any(p["lexical_rank"] is not None for p in picks))
         self.assertTrue(any(p["dense_rank"] is not None for p in picks))
+
+
+@unittest.skipUnless(_lexical_available(), "rhizome.engines.lexical not importable yet")
+class MatchedTermsTokenizerTests(unittest.TestCase):
+    """`matched_terms` must be answered by the index that scored the pick.
+
+    Hybrid used to re-tokenise the pick's text with its own
+    ``[a-z0-9][a-z0-9'\\-]*`` regex, which keeps 'self-knowledge' and "reader's"
+    whole where BM25's ``\\w+`` splits them. On such a passage BM25 scores the
+    pick on *self* and *knowledge* while the `why` reported no matched terms at
+    all — the disclosure contradicting the ranking. The corpus here is built
+    precisely on that disagreement.
+    """
+
+    LEGACY = re.compile(r"[a-z0-9][a-z0-9'\-]*")   # the regex hybrid used to use
+
+    @classmethod
+    def setUpClass(cls):
+        from rhizome.engines.lexical import bm25_index, tokenize
+        cls.tokenize = staticmethod(tokenize)
+        cls.chunks = [
+            {"id": "seed#0000", "book_id": "seed", "author": "A", "title": "Seed",
+             "text": "Self-knowledge is the reader's own long labour."},
+            {"id": "other#0000", "book_id": "other", "author": "B", "title": "Other",
+             "text": "The reader's self-knowledge deepens into a difficult patience."},
+            {"id": "other#0001", "book_id": "other", "author": "B", "title": "Other",
+             "text": "Weather, timetables, and the price of tin."},
+        ]
+        # near-identical vectors: the dense half is uninteresting here
+        cls.vecs = np.array([[1.0, 0.0], [0.99, 0.141], [0.0, 1.0]], dtype=np.float32)
+        cls.vecs /= np.linalg.norm(cls.vecs, axis=1, keepdims=True)
+        cls.ctx = Context.from_arrays(cls.chunks, cls.vecs)
+        cls.index = bm25_index(cls.ctx)
+        cls.eng = engines.get("hybrid")
+
+    def test_the_two_tokenisers_really_do_disagree_here(self):
+        """The premise of the fix, asserted so the fixture can't rot."""
+        text = self.chunks[1]["text"].lower()
+        legacy = set(self.LEGACY.findall(text))
+        self.assertIn("self-knowledge", legacy)
+        self.assertIn("reader's", legacy)
+        for term in ("self", "knowledge", "reader"):
+            self.assertIn(term, self.index.tf[1], "BM25 indexed (and can score) this term")
+            self.assertNotIn(term, legacy, "the old regex could not see it")
+
+    def test_matched_terms_agree_with_what_bm25_scored(self):
+        seed = self.ctx.seed_from_chunk("seed#0000")
+        terms = ["self", "knowledge", "reader", "tin"]
+        hits = [(1, 2.0)]
+        with mock.patch.object(hybrid, "_lexical_ranked",
+                               lambda s, c, n: (hits[:n], list(terms))):
+            picks = self.eng.candidates(seed, self.ctx, k=5)
+        p = next(p for p in picks if p["id"] == "other#0000")
+        self.assertEqual(p["lexical_rank"], 1)
+        # exactly the terms BM25 holds for that document — no more, no fewer
+        self.assertEqual(p["matched_terms"], self.index.matched_terms(1, terms))
+        self.assertEqual(p["matched_terms"], ["self", "knowledge", "reader"])
+        self.assertGreater(self.index.score_all(terms).get(1, 0.0), 0.0)
+        for term in p["matched_terms"]:
+            self.assertIn(term, p["why"])
+        # the old regex would have found none of them and said nothing
+        self.assertEqual([t for t in terms
+                          if t in set(self.LEGACY.findall(self.chunks[1]["text"].lower()))],
+                         [])
+
+    def test_a_term_bm25_did_not_index_is_never_claimed(self):
+        seed = self.ctx.seed_from_chunk("seed#0000")
+        with mock.patch.object(hybrid, "_lexical_ranked",
+                               lambda s, c, n: ([(1, 2.0)], ["knowledge", "absent"])):
+            picks = self.eng.candidates(seed, self.ctx, k=5)
+        p = next(p for p in picks if p["id"] == "other#0000")
+        self.assertEqual(p["matched_terms"], ["knowledge"])
+
+    def test_end_to_end_with_the_real_query_terms(self):
+        """No stub: the terms BM25 ranked with are the terms the `why` names."""
+        from rhizome.engines.lexical import query_terms
+        seed = self.ctx.seed_from_chunk("seed#0000")
+        terms = query_terms(seed, self.ctx, n=12)
+        picks = self.eng.candidates(seed, self.ctx, k=5)
+        p = next(p for p in picks if p["id"] == "other#0000")
+        self.assertIsNotNone(p["lexical_rank"])
+        self.assertTrue(p["matched_terms"])
+        self.assertEqual(p["matched_terms"], self.index.matched_terms(1, terms))
+        self.assertTrue(set(p["matched_terms"]) <= set(self.index.tf[1]))
+
+    def test_degrades_to_dense_only_without_the_lexical_module(self):
+        """The guarded import stays guarded: no lexical module, no crash."""
+        seed = self.ctx.seed_from_chunk("seed#0000")
+        with mock.patch.dict(sys.modules, {"rhizome.engines.lexical": None}):
+            picks = self.eng.candidates(seed, self.ctx, k=5)
+            self.assertEqual(hybrid._matched(self.ctx, 1, ["self"]), [])
+        self.assertTrue(picks)
+        for p in picks:
+            self.assertIsNone(p["lexical_rank"])
+            self.assertEqual(p["matched_terms"], [])
 
 
 if __name__ == "__main__":

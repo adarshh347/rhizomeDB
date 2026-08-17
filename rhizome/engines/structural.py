@@ -28,7 +28,8 @@ import json
 import numpy as np
 
 from .. import config
-from .base import BaseEngine, Context, Seed, decorate, ranks_from, similarities
+from .base import (BaseEngine, Context, Seed, decorate, file_stamp, ranks_from,
+                   similarities)
 
 # --- knobs (module constants; exposed through `params`) -----------------------
 MIN_STRUCT = 0.20        # floor: below this structural similarity is noise
@@ -116,7 +117,10 @@ class StructuralEngine(BaseEngine):
 
     # -- readiness ---------------------------------------------------------------
     def _side(self, ctx: Context):
-        return ctx.side("structural", lambda: load_structural(ctx))
+        # stamped on both backing files: a `build-structural` run that finishes
+        # while the server is up flips the engine to ready on the next call
+        return ctx.side_fresh("structural", file_stamp(*structural_paths(ctx.embed_key)),
+                              lambda: load_structural(ctx))
 
     def ready(self, ctx: Context) -> tuple[bool, str]:
         if self._side(ctx) is None:

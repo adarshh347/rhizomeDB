@@ -259,8 +259,16 @@ def _print_pick(i, p, width=90):
 
 
 def cmd_engines(_):
+    from . import engines
     from . import reader_service as rs
-    cards = rs.engines_status()["engines"]
+    try:
+        cards = rs.engines_status()["engines"]
+    except FileNotFoundError:
+        # no index/chunks.jsonl yet — still list the roster, say why none run
+        cards = engines.describe_all(None)
+        for c in cards:
+            c["ready"] = False
+            c["reason"] = "index not built — run: python -m rhizome.cli build"
     print(f"{'key':12s} {'label':32s} {'ready':6s} reason")
     for c in cards:
         print(f"{c['key']:12s} {c['label'][:32]:32s} {'yes' if c['ready'] else 'no':6s} {c['reason']}")

@@ -5,10 +5,14 @@ corpus (no real index, no LLM): `reader_service.get_context` is patched to
 return it, `index_ready` is forced True, and `get_engine` hands back a stub
 whose `.client` is None so an explore run ends after candidates + note + done.
 """
+import io
 import json
 import os
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -150,6 +154,38 @@ class ApiEngineTests(unittest.TestCase):
             "engine": "nope", "mode": "chunk", "value": "alpha#0003"})
         self.assertEqual(r.status_code, 400)
 
+    def test_connect_bad_engine_param_is_400(self):
+        """A2 — an engine rejecting a knob (spread's free-form `select`) raised
+        ValueError, which only KeyError was mapped: the caller saw a 500."""
+        r = self.client.get("/api/v2/connect", params={
+            "engine": "spread", "mode": "chunk", "value": "alpha#0003", "select": "foo"})
+        self.assertEqual(r.status_code, 400, r.text)
+        detail = r.json()["detail"]
+        self.assertIn("select", detail)
+        self.assertIn("foo", detail)
+        # the valid values still work
+        r = self.client.get("/api/v2/connect", params={
+            "engine": "spread", "mode": "chunk", "value": "alpha#0003", "select": "facility"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_compare_bad_engine_param_is_400(self):
+        with patch.object(rs, "compare_engines",
+                          side_effect=ValueError("select must be one of (…), got 'foo'")):
+            r = self.client.get("/api/v2/connect/compare", params={
+                "mode": "chunk", "value": "alpha#0003"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("select", r.json()["detail"])
+
+    def test_explore_bad_engine_param_is_a_clean_sse_error(self):
+        r = self.client.get("/api/v2/explore", params={
+            "mode": "chunk", "value": "alpha#0003", "engine": "spread", "select": "foo"})
+        self.assertEqual(r.status_code, 200)
+        events = dict(_sse_events(r.text))
+        self.assertIn("error", events)
+        text = events["error"]["text"]
+        self.assertIn("select", text)
+        self.assertNotIn("ValueError", text)
+
     def test_connect_unknown_chunk_is_404(self):
         r = self.client.get("/api/v2/connect", params={
             "engine": "band", "mode": "chunk", "value": "zeta#9999"})
@@ -266,6 +302,51 @@ class ApiEngineTests(unittest.TestCase):
             r = self.client.get("/api/v2/engines/eval")
         self.assertEqual(r.status_code, 404)
         self.assertIn("not built", r.json()["detail"])
+
+
+class EnginesWithoutAnIndexTests(unittest.TestCase):
+    """A3 — a fresh checkout with no `index/chunks.jsonl`. Asking for engine
+    readiness must answer with readiness reasons, not a 500 / a CLI traceback."""
+
+    def setUp(self):
+        from rhizome.api import app
+        self.client = TestClient(app)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.saved_chunks, self.saved_ctx = rs._READER_CHUNKS, dict(rs._CONTEXTS)
+        rs._READER_CHUNKS = None
+        rs._CONTEXTS.clear()
+        self.patch = patch.object(config, "CHUNKS_PATH",
+                                  Path(self.tmp.name) / "chunks.jsonl")
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        rs._READER_CHUNKS = self.saved_chunks
+        rs._CONTEXTS.clear()
+        rs._CONTEXTS.update(self.saved_ctx)
+        self.tmp.cleanup()
+
+    def test_engines_route_returns_the_roster_not_a_500(self):
+        r = self.client.get("/api/v2/engines")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual([c["key"] for c in body["engines"]], engines.keys())
+        self.assertEqual(body["default"], engines.DEFAULT_ENGINE)
+        for c in body["engines"]:
+            self.assertFalse(c["ready"], c["key"])
+            self.assertIn("index not built", c["reason"])
+            self.assertIn("rhizome.cli build", c["reason"])
+
+    def test_cli_engines_prints_the_reason_not_a_traceback(self):
+        from rhizome import cli
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.cmd_engines(None)
+        out = buf.getvalue()
+        self.assertIn("band", out)
+        self.assertIn("structural", out)
+        self.assertIn("index not built", out)
+        self.assertNotIn("yes", out)
 
 
 if __name__ == "__main__":

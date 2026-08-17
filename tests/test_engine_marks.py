@@ -1,14 +1,19 @@
 """`marks` engine — retrieval over the reader's own highlights/notes."""
+import json
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixture_corpus import make_corpus  # noqa: E402
 
-from rhizome import engines
+from rhizome import engines, workspace
+from rhizome import embed as embed_mod
 from rhizome.engines import Context, Seed
 from rhizome.engines.marks import MarksEngine, mark_text
 
@@ -155,6 +160,69 @@ class MarksTests(unittest.TestCase):
             self.assertEqual(calls, [9], "cache reused when ids unchanged")
         finally:
             embed_mod.embed_texts = orig
+
+    def test_annotations_reread_when_the_file_changes(self):
+        """A1 — a highlight written *after* the engine first ran must show up on
+        the next call. The side cache used to be built once per process, so a
+        long-running server served the annotations as they stood at first use."""
+        ctx = Context.from_arrays(self.chunks, self.vecs)   # nothing pre-injected
+        eng = MarksEngine()
+        sv = self.seed.vec
+        rows = [_ann(0, "note", "beta#0007", note="the flash and the region rhyme")]
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "annotations.jsonl"
+
+            def write():
+                path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+            write()
+            with patch.object(workspace, "ANNOT_PATH", path), \
+                 patch.object(embed_mod, "embed_texts",
+                              lambda texts, key, **kw: np.tile(sv, (len(texts), 1))):
+                self.assertEqual(eng.ready(ctx), (True, ""))
+                first = [p["id"] for p in eng.candidates(self.seed, ctx, k=10)]
+                self.assertEqual(first, ["beta#0007"])
+
+                rows.append(_ann(1, "highlight", "delta#0002", quote="the structure of the move"))
+                write()
+
+                second = [p["id"] for p in eng.candidates(self.seed, ctx, k=10)]
+                self.assertEqual(second, ["beta#0007", "delta#0002"])
+                # and the same file re-read costs nothing new
+                self.assertEqual([p["id"] for p in eng.candidates(self.seed, ctx, k=10)], second)
+
+    def test_no_marks_file_yet_then_one_appears(self):
+        """A missing annotations file is a stable stamp — not-ready stays cheap,
+        and the engine flips the moment the first mark is written."""
+        ctx = Context.from_arrays(self.chunks, self.vecs)
+        eng = MarksEngine()
+        sv = self.seed.vec
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "annotations.jsonl"
+            with patch.object(workspace, "ANNOT_PATH", path), \
+                 patch.object(embed_mod, "embed_texts",
+                              lambda texts, key, **kw: np.tile(sv, (len(texts), 1))):
+                ok, why = eng.ready(ctx)
+                self.assertFalse(ok)
+                self.assertIn("no marks yet", why)
+                path.write_text(json.dumps(
+                    _ann(0, "note", "beta#0007", note="written while the server ran")) + "\n",
+                    encoding="utf-8")
+                self.assertEqual(eng.ready(ctx), (True, ""))
+                self.assertEqual([p["id"] for p in eng.candidates(self.seed, ctx, k=10)],
+                                 ["beta#0007"])
+
+    def test_injected_side_value_is_never_overwritten(self):
+        """The test seam the whole suite relies on: a raw value in ctx._side is
+        honoured verbatim, whatever the file on disk says."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "annotations.jsonl"
+            path.write_text(json.dumps(_ann(99, "note", "beta#0007", note="on disk")) + "\n",
+                            encoding="utf-8")
+            with patch.object(workspace, "ANNOT_PATH", path):
+                self.assertEqual(self.eng._annotations(self.ctx), self.anns)
+                self.assertIs(self.ctx._side["annotations"], self.anns)
 
 
 if __name__ == "__main__":

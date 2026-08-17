@@ -591,15 +591,32 @@ def _struct_axis(eng, store, embed_key, seed_text, candidates):
     return out, abstraction
 
 
+def _needs_struct_axis(candidates) -> bool:
+    """False when every pick already carries a structural axis of its own — the
+    `structural` engine queries a persisted abstraction matrix, so re-deriving
+    the same axis with an LLM call at query time would be pure waste."""
+    return not all(c.get("structural_similarity") is not None for c in candidates)
+
+
 def run_explore(emit, *, theme=None, chunk_id=None, random=False,
                 k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED,
-                engine=engines.DEFAULT_ENGINE, engine_params=None):
+                engine=engines.DEFAULT_ENGINE, engine_params=None,
+                long_answer=None):
     """Drive one exploration, pushing SSE events through ``emit(event, data)``.
 
     Retrieval goes through the chosen mini-engine (`rhizome.engines`); the
     default `band` with default params is the same `Store.connections()` call
     the reader always made. Judge / synthesis / brainstorm then work on
-    whichever engine's picks."""
+    whichever engine's picks.
+
+    ``long_answer`` decides which synthesis prompt runs: True → the long,
+    question-answering synthesis (`SYNTH_LONG_SYSTEM`), False → the short
+    constellation note. It is an explicit choice because the seed's *mode* no
+    longer implies it: a highlighted sentence arrives as a theme seed too
+    (reader "Selection → Connect"), and a passage-shaped seed must not be
+    answered as if it were a typed question. Left None it falls back to the
+    old inference (a theme seed is a question), so existing callers are
+    unchanged."""
     eng = get_engine()
     if embed_key not in config.EMBED_MODELS or not config.embeddings_path(embed_key).exists():
         embed_key = config.DEFAULT_EMBED
@@ -608,7 +625,9 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False,
     seed_obj = resolve_engine_seed(ctx, theme=theme, chunk_id=chunk_id, random=random)
     seed = {"vec": seed_obj.vec, "text": seed_obj.text, "book_id": seed_obj.book_id,
             "author": seed_obj.author, "label": seed_obj.label}
-    is_question = theme is not None   # a typed query → long answer + follow-ups
+    # a typed query → long answer + follow-ups; a selection-derived seed is a
+    # passage, not a question, even though it arrives as a theme
+    is_question = (theme is not None) if long_answer is None else bool(long_answer)
     emit("seed", _seed_payload(seed_obj, embed_key))
 
     retr = engines.get(engine)
@@ -623,7 +642,12 @@ def run_explore(emit, *, theme=None, chunk_id=None, random=False,
 
     # Structural axis (one cheap LLM call) — lets the UI contrast structural
     # similarity against direct dissimilarity for every retrieved passage.
-    struct, abstraction = _struct_axis(eng, store, embed_key, seed["text"], candidates)
+    # Skipped when there is nothing to measure it against (an empty run must
+    # not burn an LLM round-trip) and when the engine already carries its own
+    # structural axis (structural / fused picks) — `_item` reads it off the pick.
+    struct, abstraction = {}, None
+    if candidates and _needs_struct_axis(candidates):
+        struct, abstraction = _struct_axis(eng, store, embed_key, seed["text"], candidates)
 
     params = {"total_chunks": len(store), "skip_top": config.SKIP_TOP,
               "pool": config.POOL, "min_sim": config.MIN_SIM,
