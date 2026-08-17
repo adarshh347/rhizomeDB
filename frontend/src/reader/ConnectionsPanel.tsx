@@ -5,6 +5,7 @@ import { ArrowRight, Columns3, Info, X } from "lucide-react";
 import { api, type ConnSeed } from "../api/client";
 import type { CompareResponse, ConnectItem, EngineCard } from "../api/types";
 import type { ConnectionsState } from "./useConnections";
+import { compareBasis } from "./compare";
 import { plainText } from "./text";
 import { Tip } from "./Tip";
 
@@ -151,6 +152,7 @@ export function ConnectionsPanel({
           loading={compareLoading}
           error={compareError}
           selected={engineKey}
+          selectedLabel={engineLabel}
         />
       )}
 
@@ -307,11 +309,13 @@ function CompareTable({
   loading,
   error,
   selected,
+  selectedLabel,
 }: {
   data: CompareResponse | null;
   loading: boolean;
   error: string | null;
   selected: string;
+  selectedLabel: string;
 }) {
   if (loading)
     return (
@@ -321,23 +325,30 @@ function CompareTable({
     );
   if (error) return <div className="inline-error">Compare failed: {error}</div>;
   if (!data) return null;
-  const mine = data.results.find((r) => r.key === selected);
-  const mineIds = new Set((mine?.items ?? []).map((i) => i.chunk_id));
-  const n = Math.max(1, mine?.items?.length ?? 0);
+  const mine = compareBasis(data, selected);
   return (
     <div className="conn-compare">
+      {!mine.inComparison && (
+        <p className="rail-note conn-compare-note">
+          {selectedLabel} isn’t in this comparison — only engines that are ready are
+          compared, so there is nothing to count picks shared with.
+        </p>
+      )}
       <ul className="conn-compare-list" aria-label="Top three picks per engine">
         {data.results.map((r) => {
           const items = (r.items ?? []).slice(0, 3);
-          const shared = items.filter((i) => mineIds.has(i.chunk_id)).length;
+          const shared = items.filter((i) => mine.ids.has(i.chunk_id)).length;
           const isMine = r.key === selected;
           return (
             <li key={r.key} className={`conn-compare-row ${isMine ? "selected" : ""}`}>
               <div className="conn-compare-head">
                 <span className="conn-compare-label">{r.label}</span>
-                {!isMine && !r.error && items.length > 0 && (
-                  <span className="conn-compare-shared mono" title={`picks shared with ${mine?.label ?? "the selected engine"}`}>
-                    {shared}/{n} shared
+                {mine.showShared && !isMine && !r.error && items.length > 0 && (
+                  <span
+                    className="conn-compare-shared mono"
+                    title={`picks shared with ${mine.label ?? selectedLabel}`}
+                  >
+                    {shared}/{mine.total} shared
                   </span>
                 )}
               </div>
@@ -351,7 +362,7 @@ function CompareTable({
                     <Link
                       key={it.chunk_id}
                       to={chunkHref(it.chunk_id)}
-                      className={mineIds.has(it.chunk_id) && !isMine ? "shared" : ""}
+                      className={mine.ids.has(it.chunk_id) && !isMine ? "shared" : ""}
                       title={`${it.author} · ${it.title}${it.page != null ? ` p.${it.page}` : ""}`}
                     >
                       <span className="mono conn-compare-n">{i + 1}</span>

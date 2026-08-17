@@ -14,23 +14,16 @@ import { SelectionToolbar } from "../reader/SelectionToolbar";
 import type { AnchorInput, RendererHandle } from "../reader/renderer";
 import { useAnnotations } from "../reader/useAnnotations";
 import { useConnections } from "../reader/useConnections";
+import {
+  DEFAULT_ENGINE,
+  ENGINE_STORAGE,
+  engineFallback,
+  initialEngine,
+} from "../reader/engineChoice";
 import { plainText } from "../reader/text";
 import "./reader.css";
 
 const FORMAT_LABEL: Record<string, string> = { pdf: "PDF", epub: "EPUB", md: "Text" };
-const ENGINE_STORAGE = "rhizome.engine";
-const DEFAULT_ENGINE = "band";
-
-// The retrieval engine choice: ?engine= in the URL (shareable) wins, then the
-// last choice remembered in localStorage, then the resonance band.
-function initialEngine(fromUrl: string | null): string {
-  if (fromUrl) return fromUrl;
-  try {
-    return localStorage.getItem(ENGINE_STORAGE) || DEFAULT_ENGINE;
-  } catch {
-    return DEFAULT_ENGINE;
-  }
-}
 
 export function Reader() {
   const { bookId = "" } = useParams();
@@ -85,6 +78,16 @@ export function Reader() {
     setParams(next, { replace: true });
   };
 
+  // …and once the roster has arrived, an engine key that is not on it (a stale
+  // localStorage value, a hand-edited ?engine=) is dropped for the default:
+  // otherwise the select shows one engine while the stream asks for another and
+  // 400s where the reader cannot see it. chooseEngine overwrites the bad stored
+  // key and clears ?engine= on the way.
+  useEffect(() => {
+    const fallback = engineFallback(connEngine, engines);
+    if (fallback) chooseEngine(fallback);
+  }, [engines, connEngine]);
+
   useEffect(() => {
     const query = window.matchMedia("(max-width: 900px)");
     const update = () => setIsNarrow(query.matches);
@@ -105,10 +108,12 @@ export function Reader() {
     if (isNarrow) setRailOpen(true);
   };
   const openConnections = (chunkId: string) => openConnectionsWith({ mode: "chunk", value: chunkId });
-  // Selection → Connect: the selected sentence itself becomes the seed (theme mode).
+  // Selection → Connect: the selected sentence itself becomes the seed (theme
+  // mode). It is a passage lifted out of the book, not a question the reader
+  // typed — `kind` says so, so the server does not answer it as one.
   const openConnectionsFromText = (text: string) => {
     const value = plainText(text);
-    if (value) openConnectionsWith({ mode: "theme", value });
+    if (value) openConnectionsWith({ mode: "theme", value, kind: "selection" });
   };
 
   const closeConnections = () => {

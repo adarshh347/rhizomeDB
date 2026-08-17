@@ -1,12 +1,16 @@
 """`concept` engine — personalised PageRank over the chunk–concept graph."""
+import json
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixture_corpus import make_corpus  # noqa: E402
 
-from rhizome import engines
+from rhizome import concepts as concepts_mod, config, engines
 from rhizome.engines import Context
 
 CONTRACT_KEYS = {"id", "book_id", "text", "similarity", "rank", "corpus_size",
@@ -167,6 +171,50 @@ class ConceptEngineTests(unittest.TestCase):
         # switching edges off drops the bridge-only neighbour
         picks = self.eng.candidates(seed, ctx, k=20, use_edges=False)
         self.assertNotIn("delta#0010", [p["id"] for p in picks])
+
+    def test_concepts_file_is_reread_when_it_appears(self):
+        """A1 — `rhizome concepts` run against a live server must flip the engine
+        from not-ready to ready. The loader's None result used to be cached for
+        the process lifetime, so the engine stayed stuck at "not built"."""
+        chunks, vecs = make_corpus()
+        ctx = Context.from_arrays(chunks, vecs)     # nothing pre-injected
+        with tempfile.TemporaryDirectory() as d:
+            cpath, epath = Path(d) / "concepts.json", Path(d) / "edges.jsonl"
+            with patch.object(concepts_mod, "CONCEPTS_PATH", cpath), \
+                 patch.object(config, "EDGES_PATH", epath):
+                ok, why = self.eng.ready(ctx)
+                self.assertFalse(ok)
+                self.assertIn("concepts not built", why)
+                seed = ctx.seed_from_chunk("alpha#0003")
+                self.assertEqual(self.eng.candidates(seed, ctx, k=5), [])
+
+                cpath.write_text(json.dumps(concepts_fixture()), encoding="utf-8")
+
+                ok, why = self.eng.ready(ctx)
+                self.assertTrue(ok, why)
+                ids = [p["id"] for p in self.eng.candidates(seed, ctx, k=8)]
+                self.assertIn("gamma#0005", ids)
+                self.assertIn("beta#0007", ids)
+
+                # a rebuild with a different map is picked up too (graph included)
+                narrowed = concepts_fixture()
+                narrowed["chunk_concepts"] = {"alpha#0003": ["releasement"],
+                                              "beta#0007": ["releasement"]}
+                cpath.write_text(json.dumps(narrowed), encoding="utf-8")
+                ids = [p["id"] for p in self.eng.candidates(seed, ctx, k=8)]
+                self.assertEqual(ids, ["beta#0007"])
+
+    def test_injected_concepts_side_is_never_overwritten(self):
+        """The suite's test seam: a raw ctx._side value wins over any file."""
+        with tempfile.TemporaryDirectory() as d:
+            cpath = Path(d) / "concepts.json"
+            cpath.write_text(json.dumps({"chunk_concepts": {"alpha#0003": ["from disk"]}}),
+                             encoding="utf-8")
+            with patch.object(concepts_mod, "CONCEPTS_PATH", cpath):
+                from rhizome.engines.concept import concepts_side
+                self.assertIs(concepts_side(self.ctx), self.ctx._side["concepts"])
+                ctx = make_ctx(concepts=None)
+                self.assertIsNone(concepts_side(ctx))
 
     def test_deterministic(self):
         seed = self.ctx.seed_from_chunk("beta#0007")

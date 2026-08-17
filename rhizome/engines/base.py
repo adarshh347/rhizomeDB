@@ -23,10 +23,25 @@ Contract rules:
     ("a machine that always finds a connection is lying", VISION.md);
   * never mutate `ctx.chunks` / `ctx.store.chunks` — always copy;
   * be deterministic for a given (seed, ctx, params).
+
+Side indexes come in two kinds, and picking the wrong one is how a
+long-running server goes blind to its own data:
+
+  * `ctx.side(name, builder)` — for indexes derived from `ctx.chunks`, which
+    cannot change while the process lives (BM25, book order). Built once.
+  * `ctx.side_fresh(name, stamp, builder)` — for indexes loaded from a file the
+    reader or a CLI build step rewrites underneath a running server
+    (annotations, concepts, the structural matrix). `stamp` is a cheap
+    freshness token (`file_stamp(path, …)`, i.e. (mtime_ns, size) per file, or
+    None for a file that does not exist yet); the cached value is rebuilt as
+    soon as the stamp differs, so a new highlight or a just-finished
+    `build-structural` is picked up on the next call. A value a test injected
+    directly into `ctx._side[name]` is honoured verbatim and never rebuilt.
 """
 from __future__ import annotations
 
 import functools
+import os
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -87,6 +102,33 @@ class _ArrayStore:
         return int(rng.integers(0, len(self.chunks)))
 
 
+class _Stamped:
+    """A cached side index plus the freshness token it was built from."""
+    __slots__ = ("stamp", "value")
+
+    def __init__(self, stamp, value):
+        self.stamp, self.value = stamp, value
+
+
+_MISSING = object()
+
+
+def file_stamp(*paths) -> tuple:
+    """A cheap freshness token for the file(s) a side index is loaded from:
+    `(mtime_ns, size)` per path, or None for a path that does not exist. A
+    missing file therefore has a *stable* stamp — an engine that is not ready
+    keeps answering "not built" without rebuilding on every call, and flips the
+    moment the file appears."""
+    out = []
+    for p in paths:
+        try:
+            st = os.stat(p)
+            out.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
 @dataclass
 class Context:
     """The shared retrieval runtime.
@@ -94,7 +136,9 @@ class Context:
     `store` is the exact numpy scorer (`rhizome.store.Store` or an array-backed
     stand-in). Side indexes an engine may need (BM25, the concept graph, the
     reader's annotations, the structural matrix) are built lazily and cached on
-    the context via `side(name, builder)` so a server process pays once.
+    the context via `side(name, builder)` so a server process pays once — or
+    via `side_fresh(name, stamp, builder)` when the index comes off a file that
+    can be rewritten while the process runs.
     """
     store: Any
     embed_key: str = config.DEFAULT_EMBED
@@ -139,10 +183,31 @@ class Context:
         return self.store.by_id.get(chunk_id)
 
     def side(self, name: str, builder):
-        """Lazily build + cache a side index (BM25, concept graph, …)."""
+        """Lazily build + cache a *static* side index — one derived from
+        `ctx.chunks`, which cannot change in-process (BM25, book order)."""
         if name not in self._side:
             self._side[name] = builder()
-        return self._side[name]
+        cur = self._side[name]
+        return cur.value if isinstance(cur, _Stamped) else cur
+
+    def side_fresh(self, name: str, stamp, builder):
+        """Lazily build + cache a side index loaded from disk, rebuilding it
+        whenever `stamp` differs from the stamp the cached value was built
+        with (see `file_stamp`). This is what keeps a long-running server from
+        serving a snapshot of the annotations / concepts / structural files as
+        they stood the first time an engine ran.
+
+        A value injected straight into `ctx._side[name]` (the test seam) has no
+        stamp: it is returned verbatim and never rebuilt or overwritten.
+        """
+        cur = self._side.get(name, _MISSING)
+        if cur is not _MISSING and not isinstance(cur, _Stamped):
+            return cur                      # test-injected: honour verbatim
+        if isinstance(cur, _Stamped) and cur.stamp == stamp:
+            return cur.value
+        value = builder()
+        self._side[name] = _Stamped(stamp, value)
+        return value
 
     def drop_side(self, name: str) -> None:
         self._side.pop(name, None)

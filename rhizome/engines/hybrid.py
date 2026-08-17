@@ -12,11 +12,11 @@ fields (`rank`, `dense_rank`, `lexical_rank`).
 
 Extras on every pick: ``dense_rank`` (1-based position in the dense list, or
 None), ``lexical_rank`` (1-based position in the BM25 list, or None) and
-``matched_terms`` (which of the seed's query terms occur in the pick).
+``matched_terms`` (which of the seed's query terms occur in the pick — asked of
+the BM25 index that scored the pick, never re-tokenised here, so the `why`
+can never contradict the score that ranked it).
 """
 from __future__ import annotations
-
-import re
 
 import numpy as np
 
@@ -27,8 +27,6 @@ RRF_K = 60            # the RRF smoothing constant (Cormack et al. 2009)
 POOL = 50             # top-N taken from each list before fusion
 QUERY_TERMS = 12      # how many distinctive seed terms feed BM25
 WHY_TERMS = 3         # how many matched terms the `why` sentence names
-
-_TOKEN = re.compile(r"[a-z0-9][a-z0-9'\-]*")
 
 
 def _lexical_ranked(seed: Seed, ctx: Context, n: int) -> tuple[list[tuple[int, float]], list[str]]:
@@ -46,9 +44,29 @@ def _lexical_ranked(seed: Seed, ctx: Context, n: int) -> tuple[list[tuple[int, f
     return [(int(i), float(s)) for i, s in hits], terms
 
 
-def _matched(text: str, terms: list[str]) -> list[str]:
-    toks = set(_TOKEN.findall(text.lower()))
-    return [t for t in terms if t.lower() in toks]
+def _matched(ctx: Context, idx: int, terms: list[str]) -> list[str]:
+    """Which query terms the BM25 index recorded in document `idx`.
+
+    Asked of the index itself (`BM25Index.matched_terms`, from the stored tf
+    table) rather than re-tokenised here: a private regex would disagree with
+    the index's ``\\w+`` tokeniser on hyphenated words and possessives
+    ('self-knowledge', "reader's") and the `why` would then contradict the BM25
+    score that ranked the pick. Lazily/guardedly imported like
+    `_lexical_ranked`, and tolerant of a foreign side object (tests may put any
+    ``.search``/``.terms`` provider in ``ctx._side["bm25"]``)."""
+    if not terms:
+        return []
+    try:
+        from .lexical import bm25_index
+    except ImportError:
+        return []
+    index = bm25_index(ctx)
+    if hasattr(index, "matched_terms"):
+        return index.matched_terms(idx, terms)
+    if hasattr(index, "terms"):
+        present = set(index.terms(ctx.chunks[idx].get("text", "")))
+        return [t for t in dict.fromkeys(terms) if t in present]
+    return []
 
 
 class HybridEngine(BaseEngine):
@@ -120,7 +138,7 @@ class HybridEngine(BaseEngine):
         picks = []
         for idx in order[:k]:
             dr, lr = d_rank.get(idx), l_rank.get(idx)
-            matched = _matched(chunks[idx]["text"], terms) if lr is not None else []
+            matched = _matched(ctx, idx, terms) if lr is not None else []
             if dr is not None and lr is not None:
                 why = f"dense #{dr} + keyword #{lr}"
             elif dr is not None:

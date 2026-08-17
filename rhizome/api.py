@@ -470,9 +470,26 @@ def _engine_query_params(request: Request, key: str) -> dict[str, Any]:
     return out
 
 
+NO_INDEX_REASON = "index not built — run: python -m rhizome.cli build"
+
+
+def _roster_without_index() -> dict:
+    """The engine roster on a fresh checkout with no `index/chunks.jsonl`: every
+    engine still listed (the UI wants the menu), none ready, each carrying the
+    build instruction as its reason — a readiness answer, not a 500."""
+    cards = engines.describe_all(None)
+    for c in cards:
+        c["ready"] = False
+        c["reason"] = NO_INDEX_REASON
+    return {"engines": cards, "default": engines.DEFAULT_ENGINE}
+
+
 @app.get(f"{V2}/engines")
 def engines_list(embed: str = config.DEFAULT_EMBED):
-    return rs.engines_status(embed)
+    try:
+        return rs.engines_status(embed)
+    except FileNotFoundError:
+        return _roster_without_index()
 
 
 @app.get(f"{V2}/connect")
@@ -487,6 +504,10 @@ def connect(request: Request, engine: str = engines.DEFAULT_ENGINE, mode: str = 
                           embed_key=embed, **params)
     except KeyError as exc:
         raise HTTPException(404, f"unknown chunk id: {value!r}") from exc
+    except ValueError as exc:
+        # an engine rejecting a knob it was given (spread's `select=`, …) is a
+        # bad request, not a server fault — the engine says which one
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.get(f"{V2}/connect/compare")
@@ -502,6 +523,8 @@ def connect_compare(mode: str = "chunk", value: str = "", candidates: int = 5,
                                   embed_key=embed, engine_keys=keys)
     except KeyError as exc:
         raise HTTPException(404, f"unknown chunk id: {value!r}") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _load_eval_report():
@@ -544,6 +567,8 @@ def _sse(run) -> StreamingResponse:
     def worker():
         try:
             run(emit)
+        except ValueError as exc:  # a rejected engine knob: the message is the point
+            q.put(f"event: error\ndata: {json.dumps({'text': str(exc)})}\n\n")
         except Exception as exc:  # surface, don't hang the stream
             q.put(f"event: error\ndata: {json.dumps({'text': f'{type(exc).__name__}: {exc}'})}\n\n")
         finally:
@@ -567,7 +592,7 @@ def _sse(run) -> StreamingResponse:
 @app.get(f"{V2}/explore")
 def explore(request: Request, mode: str = "random", value: str = "",
             candidates: int = config.N_CANDIDATES, embed: str = config.DEFAULT_EMBED,
-            engine: str = engines.DEFAULT_ENGINE):
+            engine: str = engines.DEFAULT_ENGINE, seed_kind: str = "question"):
     _check_engine(engine)
     if not rs.index_ready():
         def not_ready(emit):
@@ -578,6 +603,10 @@ def explore(request: Request, mode: str = "random", value: str = "",
                               "engine_params": _engine_query_params(request, engine)}
     if mode == "theme" and value:
         kwargs["theme"] = value
+        # A theme seed can be a typed question OR a sentence the reader
+        # highlighted ("Selection → Connect", ?seed_kind=selection): only the
+        # former earns the long synthesis prompt. Default keeps typed themes long.
+        kwargs["long_answer"] = seed_kind == "question"
     elif mode == "chunk" and value:
         kwargs["chunk_id"] = value
     else:

@@ -8,7 +8,9 @@ recall "what I once wrote in another book" rather than what the corpus happens
 to say nearby. Cross-book by nature; the seed chunk itself is never a pick.
 
 Side indexes (built lazily on the Context, overridable by tests):
-    annotations   the raw annotation list
+    annotations   the raw annotation list, cached against the (mtime, size) of
+                  `workspace.ANNOT_PATH` — a highlight written after the engine
+                  first ran is picked up on the next call, not after a restart.
     marks_vecs    {"ids": tuple(annotation ids), "vecs": (N, dim)} — rebuilt when
                   the id tuple no longer matches the annotation list, so a new
                   highlight is picked up by a long-running server.
@@ -18,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 
 from .. import config
-from .base import BaseEngine, Context, Seed, finish
+from .base import BaseEngine, Context, Seed, file_stamp, finish
 
 MIN_SIM = 0.25            # floor: cosine(seed, mark) below this is not a resonance
 EXCLUDE_SAME_BOOK = False  # marks in the seed's own book are allowed by default
@@ -71,10 +73,9 @@ class MarksEngine(BaseEngine):
 
     # -- side data -----------------------------------------------------------
     def _annotations(self, ctx: Context) -> list[dict]:
-        def build():
-            from .. import workspace
-            return workspace.list_annotations()
-        return ctx.side("annotations", build)
+        from .. import workspace
+        return ctx.side_fresh("annotations", file_stamp(workspace.ANNOT_PATH),
+                              workspace.list_annotations)
 
     def _marks(self, ctx: Context) -> list[dict]:
         return usable_marks(self._annotations(ctx))

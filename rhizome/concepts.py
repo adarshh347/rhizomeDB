@@ -28,6 +28,14 @@ CONCEPTS_PATH = config.INDEX_DIR / "concepts.json"
 
 # Compact stopword set: function words + corpus-pervasive scholarly noise that
 # would otherwise dominate tf-idf without naming a concept.
+#
+# Deliberately conservative about ordinary-looking English. In THIS corpus a
+# plain word is often the concept: `call` (What Is Called Thinking), `turn`
+# (die Kehre), `hand` (readiness-to-hand), `matter` (die Sache), `end` (the end
+# of philosophy), `place` (the topology of being), `given` (givenness), `back`
+# ("back to the things themselves"). Stopping those would hide exactly what the
+# reader came for, so only function words and bibliographic furniture go here —
+# the df band (3 ≤ df ≤ 0.40n) already drops what is merely pervasive.
 _STOP = set("""
 a an the this that these those it its is are was were be been being am do does did
 of in on at to from by for with without within into onto upon over under between
@@ -39,13 +47,11 @@ one two three first second new way thing things make made makes making see seen
 such about above below after before again further once each any all both either
 say said says according e.g i.e cf ed eds vol pp p chapter section page note notes
 text passage author work however therefore moreover indeed rather merely simply
-some now because even still since like take come comes cannot whether another always
-never others toward given kind every already precisely case fact part find call calls
-called know mean means end past hand place point book course order terms press
-university die der general later together through possible everything view matter
-back beyond become becomes remains ourselves himself themselves people particular
-whole basis different against true lecture lectures york cambridge well longer taken
-instead concerning away great today term turn translation press oxford london
+some now because even still since like cannot whether another always never every kind
+already precisely case fact find know mean means course order terms press university
+die der later together through possible everything view beyond remains ourselves
+himself themselves people basis different lecture lectures york cambridge well longer
+taken instead concerning away great today translation oxford london
 """.split())
 
 

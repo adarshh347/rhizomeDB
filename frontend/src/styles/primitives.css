@@ -700,6 +700,11 @@ button.row:hover,
   padding: 0 var(--space-4) var(--space-3);
   border-bottom: 1px solid var(--rule-hair);
 }
+/* the selected engine was not compared (not ready): no shared badges, a reason */
+.conn-compare-note {
+  padding: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+}
 .conn-compare-list {
   list-style: none;
   margin: 0;

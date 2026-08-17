@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { type ConnSeed, sse } from "../api/client";
+import { exploreUrl } from "../api/explore";
 import type { EngineRef, ExploreCandidate, ExploreSeed, ExploreVerdict } from "../api/types";
 
 // Streams the connection engine seeded by a passage or a piece of text (SSE
@@ -40,14 +41,13 @@ export function useConnections(seed: ConnSeed | null, engineKey: string): Connec
   const [state, setState] = useState<ConnectionsState>(initial);
   const mode = seed?.mode ?? null;
   const value = seed?.value ?? null;
+  const kind = seed?.kind ?? null;
 
   useEffect(() => {
     if (!mode || !value) return;
     setState(initial());
 
-    const url =
-      `/api/v2/explore?mode=${mode}&value=${encodeURIComponent(value)}` +
-      `&candidates=8&engine=${encodeURIComponent(engineKey)}`;
+    const url = exploreUrl({ mode, value, ...(kind ? { kind } : {}) }, engineKey);
     const control = sse(
       url,
       {
@@ -82,7 +82,7 @@ export function useConnections(seed: ConnSeed | null, engineKey: string): Connec
     );
 
     return () => control.stop();
-  }, [mode, value, engineKey]);
+  }, [mode, value, kind, engineKey]);
 
   return state;
 }

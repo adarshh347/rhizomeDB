@@ -24,7 +24,7 @@ import re
 import numpy as np
 
 from .. import config
-from .base import BaseEngine, Context, Seed, decorate, finish
+from .base import BaseEngine, Context, Seed, decorate, file_stamp, finish
 
 # --- knobs (exposed via `params`) --------------------------------------------
 ALPHA = 0.15            # teleport probability (restart to the personalisation vector)
@@ -62,6 +62,27 @@ def load_edges_side() -> list[dict]:
 
 def _concepts_ok(data) -> bool:
     return bool(data) and bool(data.get("chunk_concepts"))
+
+
+def _concepts_stamp():
+    """Freshness token for `index/concepts.json` — so a `rhizome concepts` run
+    against a live server flips the engine from not-ready to ready."""
+    from .. import concepts as concepts_mod
+    return file_stamp(concepts_mod.CONCEPTS_PATH)
+
+
+def _edges_stamp():
+    return file_stamp(config.EDGES_PATH)
+
+
+def concepts_side(ctx: Context):
+    """`concepts.json`, re-read when the file on disk has changed."""
+    return ctx.side_fresh("concepts", _concepts_stamp(), load_concepts_side)
+
+
+def edges_side(ctx: Context) -> list[dict]:
+    """`edges.jsonl` rows, re-read when the file on disk has changed."""
+    return ctx.side_fresh("edges", _edges_stamp(), load_edges_side)
 
 
 # --- the graph -----------------------------------------------------------------
@@ -155,8 +176,8 @@ class ConceptGraph:
 
 def _graph_builder(ctx: Context, use_edges: bool):
     def build():
-        concepts = ctx.side("concepts", load_concepts_side)
-        edges = ctx.side("edges", load_edges_side) if use_edges else []
+        concepts = concepts_side(ctx)
+        edges = edges_side(ctx) if use_edges else []
         return ConceptGraph(ctx.chunks, concepts, edges, use_edges=use_edges)
     return build
 
@@ -183,7 +204,7 @@ class ConceptEngine(BaseEngine):
 
     # -- readiness ---------------------------------------------------------------
     def ready(self, ctx: Context) -> tuple[bool, str]:
-        data = ctx.side("concepts", load_concepts_side)
+        data = concepts_side(ctx)
         if not _concepts_ok(data):
             return False, "concepts not built (run: python -m rhizome.cli concepts)"
         cc = data["chunk_concepts"]
@@ -195,7 +216,9 @@ class ConceptEngine(BaseEngine):
 
     def graph(self, ctx: Context, use_edges: bool = USE_EDGES) -> ConceptGraph:
         name = "concept_graph" if use_edges else "concept_graph_noedges"
-        return ctx.side(name, _graph_builder(ctx, use_edges))
+        # the graph is derived from both files, so it goes stale with either
+        stamp = (_concepts_stamp(), _edges_stamp() if use_edges else None)
+        return ctx.side_fresh(name, stamp, _graph_builder(ctx, use_edges))
 
     # -- retrieval ---------------------------------------------------------------
     def candidates(self, seed: Seed, ctx: Context, *, k: int = config.N_CANDIDATES,
