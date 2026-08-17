@@ -548,6 +548,219 @@ button.row:hover,
   font-size: var(--text-xs);
   color: var(--ink-faint);
 }
+/* the whole panel scrolls inside the rail — never the page */
+.connections-rail {
+  min-width: 0;
+  overflow-x: hidden;
+}
+/* engine picker: a native select in paper/ink, no card */
+.conn-engine-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
+}
+.conn-engine-select {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: var(--leading-ui);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+.conn-engine-select:hover {
+  border-color: var(--accent-soft);
+}
+.btn-ghost.icon.on {
+  color: var(--accent);
+  background: var(--accent-wash);
+}
+.conn-blurb {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-ui);
+  color: var(--ink-faint);
+}
+.conn-not-ready {
+  color: var(--approx);
+}
+.conn-seed-quote {
+  font-family: var(--font-reading);
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.conn-seed-quote::before,
+.conn-seed-quote::after {
+  content: "";
+}
+/* per-pick disclosure */
+.conn-why {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: var(--leading-ui);
+  color: var(--ink-faint);
+}
+.conn-rank {
+  white-space: nowrap;
+}
+.conn-paths {
+  color: var(--accent);
+  white-space: nowrap;
+}
+.conn-foot {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+.conn-open-note {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  margin-left: 0;
+}
+.conn-open-note + .conn-open {
+  margin-left: auto;
+}
+.conn-mark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: var(--leading-ui);
+}
+.conn-mark-quote {
+  font-family: var(--font-reading);
+  color: var(--ink);
+}
+.conn-mark-note {
+  color: var(--ink-soft);
+}
+.conn-abstraction {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: var(--leading-ui);
+  color: var(--ink-soft);
+}
+.conn-abstraction .section-label {
+  margin-right: var(--space-1);
+}
+.conn-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-1);
+}
+.conn-tag {
+  color: var(--accent);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--accent-wash);
+}
+/* a walk: ordered chain + hop-numbered rows joined by a thin connector */
+.conn-chain {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--accent);
+}
+.conn-chain-arrow {
+  color: var(--ink-faint);
+}
+.conn-walk .row.hop {
+  padding-left: calc(var(--space-4) + 1.5rem);
+}
+.conn-hop-num {
+  position: absolute;
+  left: var(--space-4);
+  top: var(--space-3);
+  width: 1.1rem;
+  text-align: center;
+  color: var(--accent);
+  line-height: var(--leading-ui);
+}
+.conn-walk .row.hop::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--space-4) + 0.55rem);
+  top: calc(var(--space-3) + 1.3rem);
+  bottom: 0;
+  border-left: 1px solid var(--rule-strong);
+}
+.conn-walk .row.hop:last-child::before {
+  display: none;
+}
+/* compare table: hairlines, no card; scrolls inside the rail */
+.conn-compare {
+  padding: 0 var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.conn-compare-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-ui);
+}
+.conn-compare-row {
+  padding: var(--space-1) 0 var(--space-2);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.conn-compare-row:last-child {
+  border-bottom: none;
+}
+.conn-compare-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.conn-compare-label {
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+.conn-compare-row.selected .conn-compare-label {
+  color: var(--accent);
+}
+.conn-compare-shared {
+  margin-left: auto;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.conn-compare-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: 2px;
+}
+.conn-compare-picks a {
+  color: var(--ink-soft);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conn-compare-picks a.shared {
+  color: var(--accent);
+}
+.conn-compare-n {
+  color: var(--ink-faint);
+  margin-right: 3px;
+}
+.conn-compare-err,
+.conn-compare-empty {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+.conn-overlap {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-faint);
+  line-height: var(--leading-ui);
+}
 
 /* ==== Radix skins ========================================================== */
 /* Elevation is reserved for these transient surfaces: two levels only. */

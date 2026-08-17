@@ -1,5 +1,6 @@
 import { flip, offset, shift, useFloating } from "@floating-ui/react";
 import { useLayoutEffect, useMemo } from "react";
+import { Waypoints } from "lucide-react";
 
 import { type AnchorInput, HL_COLORS } from "./renderer";
 
@@ -12,12 +13,16 @@ export function SelectionToolbar({
   onColor,
   onHighlight,
   onNote,
+  onConnect,
 }: {
   anchor: AnchorInput;
   color: string;
   onColor: (c: string) => void;
   onHighlight: () => void;
   onNote: () => void;
+  // Seed the connection engine from the selected text (theme mode) — a
+  // sentence, not only a chunk, can be a seed.
+  onConnect?: () => void;
 }) {
   const virtualReference = useMemo(
     () => ({ getBoundingClientRect: () => anchor.rect }),
@@ -62,6 +67,15 @@ export function SelectionToolbar({
       <button className="sel-btn" onClick={onNote}>
         Note…
       </button>
+      {onConnect && (
+        <button
+          className="sel-btn sel-connect"
+          onClick={onConnect}
+          aria-label="Connect — find passages across the library resonant with this selection"
+        >
+          <Waypoints size={13} strokeWidth={1.75} aria-hidden /> Connect
+        </button>
+      )}
     </div>
   );
 }

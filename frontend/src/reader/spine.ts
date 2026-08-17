@@ -122,6 +122,7 @@ export interface Segment {
     hasNote: boolean;
     note?: string;
     startsHere: boolean;
+    endsHere: boolean;
   };
 }
 
@@ -137,8 +138,21 @@ export interface HighlightSpan {
 // Split a block's runs at highlight boundaries so each returned segment is
 // wholly inside or outside every highlight. Overlaps resolve to the first
 // matching span (creation order); good enough until layered highlights land.
-export function segmentsFor(runs: Run[], highlights: HighlightSpan[]): Segment[] {
+//
+// `startsHere` / `endsHere` flag the first and last painted segment of a mark
+// (the opening/closing glyphs hang off them). A mark's end offset may fall on
+// a stripped marker (`_`, `**`) or in inter-block whitespace, so "ends here"
+// means: no more of this block's text lies inside the mark after this segment,
+// and the mark does not reach into the next block (`nextStart` = spine offset
+// of the next block's first text; Infinity when this is the last block).
+export function segmentsFor(
+  runs: Run[],
+  highlights: HighlightSpan[],
+  nextStart: number = Infinity,
+): Segment[] {
   const out: Segment[] = [];
+  const textAfter = (from: number, to: number) =>
+    runs.some((r) => r.start + r.text.length > from && r.start < to);
   for (const run of runs) {
     const runEnd = run.start + run.text.length;
     // boundaries within this run, from any highlight edge that falls inside it
@@ -154,6 +168,7 @@ export function segmentsFor(runs: Run[], highlights: HighlightSpan[]): Segment[]
       const a = sorted[k];
       const b = sorted[k + 1];
       const segStart = run.start + a;
+      const segEnd = run.start + b;
       const mid = segStart + (b - a) / 2;
       const hit = highlights.find((h) => mid >= h.spine_start && mid < h.spine_end);
       out.push({
@@ -169,6 +184,9 @@ export function segmentsFor(runs: Run[], highlights: HighlightSpan[]): Segment[]
               hasNote: !!hit.note,
               note: hit.note,
               startsHere: segStart === hit.spine_start,
+              endsHere:
+                segEnd >= hit.spine_end ||
+                (!textAfter(segEnd, hit.spine_end) && hit.spine_end <= nextStart),
             }
           : undefined,
       });

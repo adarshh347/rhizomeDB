@@ -39,11 +39,18 @@ one two three first second new way thing things make made makes making see seen
 such about above below after before again further once each any all both either
 say said says according e.g i.e cf ed eds vol pp p chapter section page note notes
 text passage author work however therefore moreover indeed rather merely simply
+some now because even still since like take come comes cannot whether another always
+never others toward given kind every already precisely case fact part find call calls
+called know mean means end past hand place point book course order terms press
+university die der general later together through possible everything view matter
+back beyond become becomes remains ourselves himself themselves people particular
+whole basis different against true lecture lectures york cambridge well longer taken
+instead concerning away great today term turn translation press oxford london
 """.split())
 
 
 def _tokens(text: str):
-    return [w for w in re.findall(r"[a-z][a-z'\-]{2,}", text.lower())
+    return [w for w in re.findall(r"[a-zà-ÿ][a-zà-ÿ'\-]{2,}", text.lower())
             if w not in _STOP and "'" not in w]
 
 

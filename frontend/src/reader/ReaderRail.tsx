@@ -1,6 +1,7 @@
 import * as Tabs from "@radix-ui/react-tabs";
 
-import type { BookPayload, Paragraph, Annotation } from "../api/types";
+import type { ConnSeed } from "../api/client";
+import type { BookPayload, ConnectItem, EngineCard, Paragraph, Annotation } from "../api/types";
 import type { ConnectionsState } from "./useConnections";
 import { ConnectionsPanel } from "./ConnectionsPanel";
 import { NotesRail } from "./NotesRail";
@@ -14,8 +15,12 @@ export function ReaderRail({
   book,
   items,
   activeChunk,
-  connectionChunk,
+  connectionSeed,
   connectionState,
+  engines,
+  engineKey,
+  onEngine,
+  onOpenAnnotation,
   onJump,
   onDelete,
   onPin,
@@ -30,8 +35,12 @@ export function ReaderRail({
   book: BookPayload;
   items: Annotation[];
   activeChunk: string | null;
-  connectionChunk: string | null;
+  connectionSeed: ConnSeed | null;
   connectionState: ConnectionsState;
+  engines: EngineCard[];
+  engineKey: string;
+  onEngine: (key: string) => void;
+  onOpenAnnotation?: (annotationId: string, item: ConnectItem) => void;
   onJump: (annotation: Annotation) => void;
   onDelete: (id: string) => void;
   onPin: (id: string, chunkId: string) => void;
@@ -46,7 +55,7 @@ export function ReaderRail({
       <Tabs.List className="rail-tabs" aria-label="Reader context">
         <Tabs.Trigger className="rail-tab" value="notes">Notes</Tabs.Trigger>
         <Tabs.Trigger className="rail-tab" value="spine">Spine</Tabs.Trigger>
-        <Tabs.Trigger className="rail-tab" value="connections" disabled={!connectionChunk}>
+        <Tabs.Trigger className="rail-tab" value="connections" disabled={!connectionSeed}>
           Connections
         </Tabs.Trigger>
       </Tabs.List>
@@ -71,11 +80,15 @@ export function ReaderRail({
         />
       </Tabs.Content>
       <Tabs.Content className="rail-tab-panel" value="connections" forceMount>
-        {connectionChunk && (
+        {connectionSeed && (
           <ConnectionsPanel
-            chunkId={connectionChunk}
+            seed={connectionSeed}
             fromLabel={book.title}
             state={connectionState}
+            engines={engines}
+            engineKey={engineKey}
+            onEngine={onEngine}
+            onOpenAnnotation={onOpenAnnotation}
             onClose={onCloseConnections}
           />
         )}

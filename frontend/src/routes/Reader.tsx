@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 
-import { api, ApiError } from "../api/client";
-import type { BookPayload, Paragraph } from "../api/types";
+import { api, ApiError, type ConnSeed } from "../api/client";
+import type { BookPayload, ConnectItem, EngineCard, Paragraph } from "../api/types";
 import type { ImportResult } from "../api/client";
 import { EpubRenderer } from "../reader/EpubRenderer";
 import { ImportMenu } from "../reader/ImportMenu";
@@ -14,13 +14,28 @@ import { SelectionToolbar } from "../reader/SelectionToolbar";
 import type { AnchorInput, RendererHandle } from "../reader/renderer";
 import { useAnnotations } from "../reader/useAnnotations";
 import { useConnections } from "../reader/useConnections";
+import { plainText } from "../reader/text";
 import "./reader.css";
 
 const FORMAT_LABEL: Record<string, string> = { pdf: "PDF", epub: "EPUB", md: "Text" };
+const ENGINE_STORAGE = "rhizome.engine";
+const DEFAULT_ENGINE = "band";
+
+// The retrieval engine choice: ?engine= in the URL (shareable) wins, then the
+// last choice remembered in localStorage, then the resonance band.
+function initialEngine(fromUrl: string | null): string {
+  if (fromUrl) return fromUrl;
+  try {
+    return localStorage.getItem(ENGINE_STORAGE) || DEFAULT_ENGINE;
+  } catch {
+    return DEFAULT_ENGINE;
+  }
+}
 
 export function Reader() {
   const { bookId = "" } = useParams();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const [book, setBook] = useState<BookPayload | null>(null);
   const [format, setFormat] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +48,9 @@ export function Reader() {
   const [connectionReturnMode, setConnectionReturnMode] = useState<RailMode>("notes");
   const [railOpen, setRailOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
-  const [connChunk, setConnChunk] = useState<string | null>(null);
+  const [connSeed, setConnSeed] = useState<ConnSeed | null>(null);
+  const [connEngine, setConnEngine] = useState<string>(() => initialEngine(params.get("engine")));
+  const [engines, setEngines] = useState<EngineCard[]>([]);
   const [activeChunk, setActiveChunk] = useState<string | null>(null);
   const [activeAnnotation, setActiveAnnotation] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -43,7 +60,30 @@ export function Reader() {
   const { items, create, remove, pin, dismiss, reload } = useAnnotations(bookId);
   // The stream belongs to the Reader, above the tab panels. Mode switches only
   // change what is visible; they never mount, cancel, duplicate, or restart SSE.
-  const connectionState = useConnections(connChunk);
+  const connectionState = useConnections(connSeed, connEngine);
+
+  // The engine roster, once; a not-ready engine stays selectable (the panel
+  // shows its reason) so the reader can see what the corpus is missing.
+  useEffect(() => {
+    api
+      .engines()
+      .then((r) => setEngines(r.engines))
+      .catch(() => setEngines([]));
+  }, []);
+
+  // Persist the engine choice: localStorage for next time, ?engine= for sharing.
+  const chooseEngine = (key: string) => {
+    setConnEngine(key);
+    try {
+      localStorage.setItem(ENGINE_STORAGE, key);
+    } catch {
+      /* private mode */
+    }
+    const next = new URLSearchParams(params);
+    if (key === DEFAULT_ENGINE) next.delete("engine");
+    else next.set("engine", key);
+    setParams(next, { replace: true });
+  };
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 900px)");
@@ -58,17 +98,38 @@ export function Reader() {
     if (isNarrow) setRailOpen(true);
   };
 
-  const openConnections = (chunkId: string) => {
+  const openConnectionsWith = (seed: ConnSeed) => {
     if (railMode !== "connections") setConnectionReturnMode(railMode);
-    setConnChunk(chunkId);
+    setConnSeed(seed);
     setRailMode("connections");
     if (isNarrow) setRailOpen(true);
+  };
+  const openConnections = (chunkId: string) => openConnectionsWith({ mode: "chunk", value: chunkId });
+  // Selection → Connect: the selected sentence itself becomes the seed (theme mode).
+  const openConnectionsFromText = (text: string) => {
+    const value = plainText(text);
+    if (value) openConnectionsWith({ mode: "theme", value });
   };
 
   const closeConnections = () => {
     setRailMode(connectionReturnMode === "connections" ? "notes" : connectionReturnMode);
-    setConnChunk(null);
+    setConnSeed(null);
     if (isNarrow) setRailOpen(false);
+  };
+
+  // "open note" on a *my marks* pick: if the annotation lives in this book,
+  // highlight it in the notes rail and jump to it; otherwise deep-link into the
+  // book it belongs to (?chunk= lands on the passage; the mark is painted there).
+  const openAnnotation = (annotationId: string, item: ConnectItem) => {
+    const here = items.find((a) => a.id === annotationId);
+    if (here) {
+      setActiveAnnotation(here.id);
+      setRailMode("notes");
+      handleRef.current?.jumpToAnnotation(here);
+      return;
+    }
+    const book = item.chunk_id.split("#")[0];
+    navigate(`/read/${encodeURIComponent(book)}?chunk=${encodeURIComponent(item.chunk_id)}`);
   };
 
   const openChunk = (chunk: Paragraph) => {
@@ -238,7 +299,7 @@ export function Reader() {
           <button className="btn-ghost" onClick={() => showRail("spine")}>Spine</button>
           <button
             className="btn-ghost"
-            disabled={!connChunk}
+            disabled={!connSeed}
             onClick={() => showRail("connections")}
           >
             Connections
@@ -272,8 +333,12 @@ export function Reader() {
             items={items}
             activeChunk={activeChunk}
             activeAnnotation={activeAnnotation}
-            connectionChunk={connChunk}
+            connectionSeed={connSeed}
             connectionState={connectionState}
+            engines={engines}
+            engineKey={connEngine}
+            onEngine={chooseEngine}
+            onOpenAnnotation={openAnnotation}
             onJump={(a) => {
               setActiveAnnotation(a.id);
               handleRef.current?.jumpToAnnotation(a);
@@ -304,8 +369,12 @@ export function Reader() {
                 items={items}
                 activeChunk={activeChunk}
                 activeAnnotation={activeAnnotation}
-                connectionChunk={connChunk}
+                connectionSeed={connSeed}
                 connectionState={connectionState}
+                engines={engines}
+                engineKey={connEngine}
+                onEngine={chooseEngine}
+                onOpenAnnotation={openAnnotation}
                 onJump={(a) => {
                   setActiveAnnotation(a.id);
                   handleRef.current?.jumpToAnnotation(a);
@@ -334,6 +403,11 @@ export function Reader() {
           onNote={() => {
             setComposing(anchor);
             setNoteText("");
+            setAnchor(null);
+          }}
+          onConnect={() => {
+            openConnectionsFromText(anchor.quote);
+            window.getSelection()?.removeAllRanges();
             setAnchor(null);
           }}
         />

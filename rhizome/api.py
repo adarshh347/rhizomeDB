@@ -22,14 +22,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (anchor, config, imports, ingest, reader_service as rs, rhythm,
-               sources, workspace)
+from . import (anchor, config, engines, imports, ingest, reader_service as rs,
+               rhythm, sources, workspace)
 
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024  # 120 MB — comfortably fits a large scanned PDF
 
@@ -432,6 +432,102 @@ def compare(mode: str = "theme", value: str = "",
     return rs.compare_models(mode=mode, value=value, k=candidates, models=models)
 
 
+# ---- the mini-engines: registry / connect / compare / eval ------------------
+def _check_engine(key: str) -> str:
+    if key not in engines.keys():
+        raise HTTPException(400, f"unknown engine {key!r}; known: {', '.join(engines.keys())}")
+    return key
+
+
+def _check_seed_mode(mode: str, value: str) -> str:
+    if mode not in ("chunk", "theme", "random"):
+        raise HTTPException(400, "mode must be chunk, theme or random")
+    if mode in ("chunk", "theme") and not value:
+        raise HTTPException(400, f"mode={mode} needs a value")
+    return value
+
+
+def _engine_query_params(request: Request, key: str) -> dict[str, Any]:
+    """Engine knobs passed as extra query params (?skip_top=4), coerced by the
+    engine's declared param types. Unknown names are ignored."""
+    spec = getattr(engines.get(key), "params", {}) or {}
+    out: dict[str, Any] = {}
+    for name, raw in request.query_params.items():
+        if name not in spec:
+            continue
+        typ = spec[name].get("type", "float")
+        try:
+            if typ == "int":
+                out[name] = int(raw)
+            elif typ == "bool":
+                out[name] = raw.lower() in ("1", "true", "yes", "on")
+            elif typ == "float":
+                out[name] = float(raw)
+            else:
+                out[name] = raw
+        except ValueError:
+            raise HTTPException(400, f"param {name!r} must be {typ}")
+    return out
+
+
+@app.get(f"{V2}/engines")
+def engines_list(embed: str = config.DEFAULT_EMBED):
+    return rs.engines_status(embed)
+
+
+@app.get(f"{V2}/connect")
+def connect(request: Request, engine: str = engines.DEFAULT_ENGINE, mode: str = "chunk",
+            value: str = "", candidates: int = config.N_CANDIDATES,
+            embed: str = config.DEFAULT_EMBED):
+    _check_engine(engine)
+    value = _check_seed_mode(mode, (value or "").strip())
+    params = _engine_query_params(request, engine)
+    try:
+        return rs.connect(engine, mode=mode, value=value, k=candidates,
+                          embed_key=embed, **params)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown chunk id: {value!r}") from exc
+
+
+@app.get(f"{V2}/connect/compare")
+def connect_compare(mode: str = "chunk", value: str = "", candidates: int = 5,
+                    engines_: str = Query("", alias="engines"),
+                    embed: str = config.DEFAULT_EMBED):
+    value = _check_seed_mode(mode, (value or "").strip())
+    keys = [k.strip() for k in (engines_ or "").split(",") if k.strip()] or None
+    for k in keys or []:
+        _check_engine(k)
+    try:
+        return rs.compare_engines(mode=mode, value=value, k=candidates,
+                                  embed_key=embed, engine_keys=keys)
+    except KeyError as exc:
+        raise HTTPException(404, f"unknown chunk id: {value!r}") from exc
+
+
+def _load_eval_report():
+    """The constellatory eval report (`rhizome eval-engines`) — via
+    rhizome.eval_engines when present, else the JSON in index/."""
+    try:
+        from . import eval_engines
+        loader = getattr(eval_engines, "load_report", None)
+        if loader is not None:
+            return loader()
+        path = Path(getattr(eval_engines, "REPORT_PATH", config.INDEX_DIR / "eval_engines.json"))
+    except ImportError:
+        path = config.INDEX_DIR / "eval_engines.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get(f"{V2}/engines/eval")
+def engines_eval():
+    report = _load_eval_report()
+    if report is None:
+        raise HTTPException(404, "not built — run: python -m rhizome.cli eval-engines")
+    return report
+
+
 # ---- the live exploration stream (SSE) -------------------------------------
 def _sse(run) -> StreamingResponse:
     """Bridge the push-based ``run(emit)`` driver to an SSE response.
@@ -469,14 +565,17 @@ def _sse(run) -> StreamingResponse:
 
 
 @app.get(f"{V2}/explore")
-def explore(mode: str = "random", value: str = "",
-            candidates: int = config.N_CANDIDATES, embed: str = config.DEFAULT_EMBED):
+def explore(request: Request, mode: str = "random", value: str = "",
+            candidates: int = config.N_CANDIDATES, embed: str = config.DEFAULT_EMBED,
+            engine: str = engines.DEFAULT_ENGINE):
+    _check_engine(engine)
     if not rs.index_ready():
         def not_ready(emit):
             emit("error", {"text": "Index not built. Run: python -m rhizome.cli build"})
         return _sse(not_ready)
     value = (value or "").strip()
-    kwargs: dict[str, Any] = {"k": candidates, "embed_key": embed}
+    kwargs: dict[str, Any] = {"k": candidates, "embed_key": embed, "engine": engine,
+                              "engine_params": _engine_query_params(request, engine)}
     if mode == "theme" and value:
         kwargs["theme"] = value
     elif mode == "chunk" and value:

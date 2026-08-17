@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
-import type { ExploreCandidate, ExploreSeed, ExploreVerdict } from "../api/types";
+import { type ConnSeed, sse } from "../api/client";
+import type { EngineRef, ExploreCandidate, ExploreSeed, ExploreVerdict } from "../api/types";
 
-// Streams the connection engine seeded by a passage (SSE /api/v2/explore). The
-// resonance band (cross-book passages related-but-distant) arrives first and is
-// useful on its own — geometry-only, no API key. When an LLM is configured the
-// genuine-vs-forced verdicts and a synthesized reading follow.
+// Streams the connection engine seeded by a passage or a piece of text (SSE
+// /api/v2/explore). The chosen retrieval engine's picks arrive first and are
+// useful on their own — geometry-only, no API key. When an LLM is configured
+// the genuine-vs-forced verdicts and a synthesized reading follow.
 export type ConnStatus =
   | "geometry"
   | "judging"
@@ -15,6 +16,7 @@ export type ConnStatus =
 
 export interface ConnectionsState {
   seed: ExploreSeed | null;
+  engine: EngineRef | null;
   candidates: ExploreCandidate[];
   verdicts: Record<number, ExploreVerdict>;
   exploration: string | null;
@@ -25,6 +27,7 @@ export interface ConnectionsState {
 
 const initial = (): ConnectionsState => ({
   seed: null,
+  engine: null,
   candidates: [],
   verdicts: {},
   exploration: null,
@@ -33,59 +36,53 @@ const initial = (): ConnectionsState => ({
   error: null,
 });
 
-export function useConnections(chunkId: string | null): ConnectionsState {
+export function useConnections(seed: ConnSeed | null, engineKey: string): ConnectionsState {
   const [state, setState] = useState<ConnectionsState>(initial);
+  const mode = seed?.mode ?? null;
+  const value = seed?.value ?? null;
 
   useEffect(() => {
-    if (!chunkId) return;
+    if (!mode || !value) return;
     setState(initial());
-    let finished = false;
 
-    const url = `/api/v2/explore?mode=chunk&value=${encodeURIComponent(chunkId)}&candidates=8`;
-    const es = new EventSource(url);
-    const on = (name: string, fn: (data: any) => void) =>
-      es.addEventListener(name, (e) => fn(JSON.parse((e as MessageEvent).data)));
-
-    on("seed", (d) => setState((s) => ({ ...s, seed: d })));
-    on("candidates", (d) => setState((s) => ({ ...s, candidates: d.items })));
-    on("stage", (d) =>
-      setState((s) => ({
-        ...s,
-        status: d.name === "judge" ? "judging" : d.name === "synthesize" ? "synthesizing" : s.status,
-      })),
+    const url =
+      `/api/v2/explore?mode=${mode}&value=${encodeURIComponent(value)}` +
+      `&candidates=8&engine=${encodeURIComponent(engineKey)}`;
+    const control = sse(
+      url,
+      {
+        seed: (d) => setState((s) => ({ ...s, seed: d })),
+        engine: (d) => setState((s) => ({ ...s, engine: d })),
+        candidates: (d) => setState((s) => ({ ...s, candidates: d.items ?? [] })),
+        stage: (d) =>
+          setState((s) => ({
+            ...s,
+            status:
+              d.name === "judge" ? "judging" : d.name === "synthesize" ? "synthesizing" : s.status,
+          })),
+        verdicts: (d) =>
+          setState((s) => ({
+            ...s,
+            verdicts: Object.fromEntries(
+              (d.items ?? []).map((v: ExploreVerdict) => [v.index, v]),
+            ),
+          })),
+        exploration: (d) => setState((s) => ({ ...s, exploration: d.text })),
+        note: (d) => setState((s) => ({ ...s, notes: [...s.notes, d.text] })),
+        error: (d) => {
+          control.stop();
+          setState((s) => ({ ...s, status: "error", error: d.text }));
+        },
+        done: () => {
+          control.stop();
+          setState((s) => ({ ...s, status: "done" }));
+        },
+      },
+      (message) => setState((s) => ({ ...s, status: "error", error: s.error ?? message })),
     );
-    on("verdicts", (d) =>
-      setState((s) => ({
-        ...s,
-        verdicts: Object.fromEntries(d.items.map((v: ExploreVerdict) => [v.index, v])),
-      })),
-    );
-    on("exploration", (d) => setState((s) => ({ ...s, exploration: d.text })));
-    on("note", (d) => setState((s) => ({ ...s, notes: [...s.notes, d.text] })));
-    on("error", (d) => {
-      finished = true;
-      setState((s) => ({ ...s, status: "error", error: d.text }));
-      es.close();
-    });
-    on("done", () => {
-      finished = true;
-      setState((s) => ({ ...s, status: "done" }));
-      es.close();
-    });
-    // The server closes the stream after "done"; EventSource reads that as an
-    // error and would otherwise reconnect (re-running the whole explore).
-    es.onerror = () => {
-      if (finished) return;
-      finished = true;
-      setState((s) => ({ ...s, status: "error", error: s.error ?? "Connection lost." }));
-      es.close();
-    };
 
-    return () => {
-      finished = true;
-      es.close();
-    };
-  }, [chunkId]);
+    return () => control.stop();
+  }, [mode, value, engineKey]);
 
   return state;
 }

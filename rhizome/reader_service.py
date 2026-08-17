@@ -16,7 +16,7 @@ import re as _re
 import numpy as np
 
 from . import (config, chunk as chunk_mod, embed as embed_mod,
-               store as store_mod, llm, workspace, rhythm, sources)
+               store as store_mod, llm, workspace, rhythm, sources, engines)
 from .catalog import load_catalog
 
 
@@ -24,6 +24,7 @@ from .catalog import load_catalog
 _ENGINE = None
 _READER_CHUNKS = None
 _STORES: dict = {}
+_CONTEXTS: dict = {}
 _EVAL_CACHE = None
 _WORD_COUNTS: dict = {}
 
@@ -64,6 +65,182 @@ def get_store(model_key=config.DEFAULT_EMBED):
 
 def index_ready() -> bool:
     return config.CHUNKS_PATH.exists() and config.EMBEDDINGS_PATH.exists()
+
+
+# ---- the mini-engine runtime (rhizome.engines) ------------------------------
+def get_context(embed_key=config.DEFAULT_EMBED):
+    """One cached `engines.Context` per embedding model.
+
+    When that model's vectors are built the context wraps the shared Store
+    (exact numpy scorer); otherwise it is built over `reader_chunks()` with no
+    vectors, so chunk-only engines (lexical) stay usable and the vector engines
+    report a reason instead of crashing."""
+    built = config.CHUNKS_PATH.exists() and config.embeddings_path(embed_key).exists()
+    ctx = _CONTEXTS.get(embed_key)
+    if ctx is not None and (ctx.has_vectors or not built):
+        return ctx
+    if built:
+        ctx = engines.Context.from_store(get_store(embed_key), embed_key)
+    else:
+        ctx = engines.Context.from_arrays(reader_chunks(), None, embed_key)
+    _CONTEXTS[embed_key] = ctx
+    return ctx
+
+
+def engines_status(embed_key=config.DEFAULT_EMBED):
+    """Every engine's card (key/label/blurb/needs/params/ready/reason)."""
+    return {"engines": engines.describe_all(get_context(embed_key)),
+            "default": engines.DEFAULT_ENGINE}
+
+
+def resolve_engine_seed(ctx, *, theme=None, chunk_id=None, random=False):
+    """A `Seed` for the engines from a theme, a chunk id, or a random passage."""
+    if theme is not None:
+        return ctx.seed_from_text(theme)
+    if chunk_id is not None:
+        return ctx.seed_from_chunk(chunk_id)
+    if random:
+        i = int(np.random.default_rng().integers(0, len(ctx.chunks)))
+        return ctx.seed_from_chunk(ctx.chunks[i]["id"])
+    raise ValueError("need theme=, chunk_id=, or random=True")
+
+
+def _seed_payload(seed, embed_key):
+    return {"label": seed.label, "text": seed.text, "author": seed.author,
+            "book_id": seed.book_id, "chunk_id": seed.chunk_id,
+            "embed_key": embed_key,
+            "embed_label": config.EMBED_MODELS.get(embed_key, {}).get("label", embed_key)}
+
+
+# Engine-specific pick fields the API passes through when present (the ITEM
+# contract's optional extras). Anything else on a pick stays server-side.
+ITEM_EXTRAS = ("hop", "from_id", "hop_similarity", "annotation_id", "note", "quote",
+               "kind", "color", "concepts", "activation", "gap", "abstraction",
+               "dense_rank", "lexical_rank", "distance", "heading", "covers",
+               "paths", "contributions",
+               # informative extras beyond the contract's list (harmless to ignore)
+               "terms", "matched_terms", "mark_similarity", "surface_similarity")
+
+
+def _item(i, pick, structural_similarity=None):
+    """Map an engine pick (a decorated chunk dict) to the API's ITEM shape.
+
+    `structural_similarity` is the explore run's LLM-abstraction axis; when the
+    caller has none, an engine's own value (structural / fused picks carry
+    one) is used so the ITEM never drops it."""
+    sim = pick.get("similarity")
+    if structural_similarity is None:
+        structural_similarity = pick.get("structural_similarity")
+    item = {"index": i, "chunk_id": pick.get("id"),
+            "author": pick.get("author") or "Unknown",
+            "title": pick.get("title") or pick.get("book_id"),
+            "page": pick.get("page"), "text": pick["text"],
+            "similarity": sim,
+            "direct_dissimilarity": round(1.0 - sim, 4) if sim is not None else None,
+            "structural_similarity": structural_similarity,
+            "rank": pick.get("rank"), "corpus_size": pick.get("corpus_size"),
+            "score": pick.get("score"), "path": pick.get("path", ""),
+            "why": pick.get("why", "")}
+    for key in ITEM_EXTRAS:
+        if key in pick and pick[key] is not None:
+            item[key] = pick[key]
+    return item
+
+
+def _engine_params(eng, k, params):
+    """The knobs an engine actually ran with: its defaults, overridden by the
+    caller's, plus k."""
+    used = {name: spec.get("default") for name, spec in getattr(eng, "params", {}).items()}
+    used.update({n: v for n, v in (params or {}).items() if n in used})
+    used["k"] = k
+    return used
+
+
+def _resolve_by_mode(ctx, mode, value):
+    return resolve_engine_seed(
+        ctx, theme=value if mode == "theme" else None,
+        chunk_id=value if mode == "chunk" else None,
+        random=(mode == "random"))
+
+
+def _empty_reason(eng, seed, ctx) -> str:
+    """Why an engine returned nothing — names the noise floor when that is
+    what fired, so 'nothing' reads as a finding, not a failure."""
+    from .engines import base as _base
+    if getattr(eng, "noise_gate", False) and not _base.clears_noise_floor(seed, ctx):
+        best = _base.best_match(seed, ctx)
+        return (f"Nothing in the corpus resonates with this seed above the noise floor "
+                f"(best match {best:.3f} < {ctx.noise_floor:.2f}) — so no connection is offered.")
+    if eng.key == "band":
+        return "No candidates in the resonance band for this seed."
+    return f"Nothing cleared the {eng.label} engine's floors for this seed."
+
+
+def connect(engine=engines.DEFAULT_ENGINE, *, mode="chunk", value="",
+            k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED, **params):
+    """One engine's picks for one seed — geometry only, no LLM (the /connect
+    JSON). Raises KeyError for an unknown engine or chunk id."""
+    import time
+    eng = engines.get(engine)
+    ctx = get_context(embed_key)
+    value = (value or "").strip()
+    seed = _resolve_by_mode(ctx, mode, value)
+    ok, why = eng.ready(ctx)
+    used = _engine_params(eng, k, params)
+    if not ok:
+        return {"engine": {"key": eng.key, "label": eng.label, "blurb": eng.blurb},
+                "seed": _seed_payload(seed, embed_key), "items": [], "params": used,
+                "ms": 0.0, "note": why}
+    given = {n: v for n, v in (params or {}).items() if n in getattr(eng, "params", {})}
+    t0 = time.perf_counter()
+    picks = eng.candidates(seed, ctx, k=k, **given)
+    ms = round((time.perf_counter() - t0) * 1000, 2)
+    return {"engine": {"key": eng.key, "label": eng.label, "blurb": eng.blurb},
+            "seed": _seed_payload(seed, embed_key),
+            "items": [_item(i, p) for i, p in enumerate(picks)],
+            "params": used, "ms": ms,
+            "note": None if picks else _empty_reason(eng, seed, ctx)}
+
+
+def _jaccard(a: set, b: set, same: bool) -> float:
+    if not a and not b:
+        return 1.0 if same else 0.0
+    return round(len(a & b) / len(a | b), 4)
+
+
+def compare_engines(*, mode="chunk", value="", k=5, embed_key=config.DEFAULT_EMBED,
+                    engine_keys=None):
+    """Every (ready) engine's picks for ONE seed + the pairwise Jaccard overlap
+    of their pick sets — how much do the geometries agree?"""
+    import time
+    ctx = get_context(embed_key)
+    value = (value or "").strip()
+    seed = _resolve_by_mode(ctx, mode, value)
+    if engine_keys:
+        keys = [x for x in engine_keys if x]
+    else:
+        keys = [e.key for e in engines.all_engines() if e.ready(ctx)[0]]
+    results, sets = [], []
+    for key in keys:
+        row = {"key": key, "label": key, "items": [], "ms": 0.0}
+        try:
+            eng = engines.get(key)
+            row["label"] = eng.label
+            ok, why = eng.ready(ctx)
+            if not ok:
+                row["error"] = why
+            else:
+                t0 = time.perf_counter()
+                picks = eng.candidates(seed, ctx, k=k)
+                row["ms"] = round((time.perf_counter() - t0) * 1000, 2)
+                row["items"] = [_item(i, p) for i, p in enumerate(picks)]
+        except Exception as e:
+            row["error"] = f"{type(e).__name__}: {e}"
+        results.append(row)
+        sets.append({it["chunk_id"] for it in row["items"]})
+    matrix = [[_jaccard(a, b, i == j) for j, b in enumerate(sets)] for i, a in enumerate(sets)]
+    return {"seed": _seed_payload(seed, embed_key), "results": results,
+            "overlap": {"keys": [r["key"] for r in results], "matrix": matrix}}
 
 
 def embeddings_status():
@@ -415,51 +592,56 @@ def _struct_axis(eng, store, embed_key, seed_text, candidates):
 
 
 def run_explore(emit, *, theme=None, chunk_id=None, random=False,
-                k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED):
-    """Drive one exploration, pushing SSE events through ``emit(event, data)``."""
+                k=config.N_CANDIDATES, embed_key=config.DEFAULT_EMBED,
+                engine=engines.DEFAULT_ENGINE, engine_params=None):
+    """Drive one exploration, pushing SSE events through ``emit(event, data)``.
+
+    Retrieval goes through the chosen mini-engine (`rhizome.engines`); the
+    default `band` with default params is the same `Store.connections()` call
+    the reader always made. Judge / synthesis / brainstorm then work on
+    whichever engine's picks."""
     eng = get_engine()
     if embed_key not in config.EMBED_MODELS or not config.embeddings_path(embed_key).exists():
         embed_key = config.DEFAULT_EMBED
-    store = get_store(embed_key)
-    seed = _resolve_seed(store, embed_key, theme=theme, chunk_id=chunk_id, random=random)
+    ctx = get_context(embed_key)
+    store = ctx.store
+    seed_obj = resolve_engine_seed(ctx, theme=theme, chunk_id=chunk_id, random=random)
+    seed = {"vec": seed_obj.vec, "text": seed_obj.text, "book_id": seed_obj.book_id,
+            "author": seed_obj.author, "label": seed_obj.label}
     is_question = theme is not None   # a typed query → long answer + follow-ups
-    emit("seed", {"label": seed["label"], "text": seed["text"],
-                  "author": seed["author"], "book_id": seed["book_id"],
-                  "embed_key": embed_key,
-                  "embed_label": config.EMBED_MODELS[embed_key]["label"]})
+    emit("seed", _seed_payload(seed_obj, embed_key))
 
-    candidates = store.connections(
-        seed["vec"], seed_book_id=seed["book_id"], seed_author=seed["author"], k=k)
+    retr = engines.get(engine)
+    emit("engine", {"key": retr.key, "label": retr.label, "blurb": retr.blurb})
+    ok, why = retr.ready(ctx)
+    if not ok:
+        emit("note", {"text": why})
+        emit("done", {}); return
+    given = {n: v for n, v in (engine_params or {}).items()
+             if n in getattr(retr, "params", {})}
+    candidates = retr.candidates(seed_obj, ctx, k=k, **given)
 
     # Structural axis (one cheap LLM call) — lets the UI contrast structural
     # similarity against direct dissimilarity for every retrieved passage.
     struct, abstraction = _struct_axis(eng, store, embed_key, seed["text"], candidates)
 
-    def _direct(c):
-        return c.get("similarity") or 0.0
-
+    params = {"total_chunks": len(store), "skip_top": config.SKIP_TOP,
+              "pool": config.POOL, "min_sim": config.MIN_SIM,
+              "mmr_lambda": config.MMR_LAMBDA,
+              "exclude_same_author": config.EXCLUDE_SAME_AUTHOR}
+    params.update(_engine_params(retr, k, given))
+    params["engine"] = retr.key
     emit("candidates", {
-        "params": {"total_chunks": len(store), "skip_top": config.SKIP_TOP,
-                   "pool": config.POOL, "min_sim": config.MIN_SIM,
-                   "mmr_lambda": config.MMR_LAMBDA,
-                   "exclude_same_author": config.EXCLUDE_SAME_AUTHOR},
+        "params": params,
         "excluded_author": seed["author"],
-        "items": [{"index": i, "author": c.get("author") or "Unknown",
-                   "title": c.get("title") or c["book_id"], "page": c.get("page"),
-                   "chunk_id": c.get("id"),
-                   "similarity": _direct(c),
-                   "direct_dissimilarity": round(1.0 - _direct(c), 4),
-                   "structural_similarity": struct.get(i),
-                   "rank": c.get("rank"), "corpus_size": c.get("corpus_size"),
-                   "text": c["text"]}
-                  for i, c in enumerate(candidates)],
+        "items": [_item(i, c, struct.get(i)) for i, c in enumerate(candidates)],
     })
     if abstraction:
         emit("abstraction", {"text": abstraction})
         _emit_tokens(emit, eng, "abstract (structural reading)")
 
     if not candidates:
-        emit("note", {"text": "No candidates in the resonance band for this seed."})
+        emit("note", {"text": _empty_reason(retr, seed_obj, ctx)})
         emit("done", {}); return
     if eng.client is None:
         emit("note", {"text": "Geometry-only mode — set GROQ_API_KEY (or GEMINI/"

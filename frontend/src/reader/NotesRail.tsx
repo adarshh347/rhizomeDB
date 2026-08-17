@@ -4,6 +4,7 @@ import { ArrowLeftRight, X } from "lucide-react";
 import { api, type OrphanCandidate } from "../api/client";
 import type { Annotation } from "../api/types";
 import { Tip } from "./Tip";
+import { plainText } from "./text";
 
 // Notes & highlights, plus the orphan queue (R11): imported quotes that could
 // not be anchored, shown with their source and a way to pin them to a passage
@@ -64,8 +65,8 @@ export function NotesRail({
                 onClick={() => onJump(a)}
                 title="Jump to this mark"
               >
-                <span className="q">“{a.quote}”</span>
-                {a.note && <span className="n">{a.note}</span>}
+                <span className="q">“{plainText(a.quote)}”</span>
+                {a.note && <span className="n">{plainText(a.note)}</span>}
               </button>
               <div className="note-meta">
                 {approx && (
@@ -151,8 +152,8 @@ function OrphanRow({
   return (
     <li className="row orphan-row">
       <div className="note-quote" style={{ borderColor: "var(--accent-soft)" }}>
-        <span className="q">“{ann.quote}”</span>
-        {ann.note && <span className="n">{ann.note}</span>}
+        <span className="q">“{plainText(ann.quote)}”</span>
+        {ann.note && <span className="n">{plainText(ann.note)}</span>}
       </div>
       <div className="note-meta">
         {ann.origin && <span className="provenance">{ann.origin}</span>}

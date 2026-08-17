@@ -139,6 +139,23 @@ DEDUP_SIM = 0.97         # ceiling: at/above this a candidate is a near-duplicat
 EXCLUDE_SAME_BOOK = True
 EXCLUDE_SAME_AUTHOR = False  # set True only to force strictly cross-author connections
 
+# The willingness to find nothing (VISION.md). MIN_SIM is a per-candidate floor
+# but embedding spaces are anisotropic — with bge-base *everything* scores above
+# 0.15 — so it never fires. The noise floor is a gate on the seed's BEST match:
+# if nothing in the corpus resonates with the seed above it, an engine returns
+# [] instead of eight confident-looking picks. Calibrated per model on the
+# real corpus (rhizome/engines/base.py `clears_noise_floor`); measured for
+# bge-base on 4110 chunks: word-salad themes peak at 0.41–0.52, real short
+# themes at 0.55–0.78, passage seeds' best cross-book match ≥ 0.73 (min over
+# 400 seeds). Models without a calibration are ungated (None). Plain nearest-
+# neighbour RAG is deliberately never gated — it is the baseline that always
+# answers.
+NOISE_FLOOR = {"bge-base": 0.50}
+
+
+def noise_floor(embed_key: str = DEFAULT_EMBED) -> float | None:
+    return NOISE_FLOOR.get(embed_key)
+
 # Token economy (R8-style guard for the live pipeline). The SAME passages are
 # sent into judge + synthesis + brainstorm, and the judge reads every candidate,
 # so clipping passage text in prompts is the single biggest lever on tokens/run.

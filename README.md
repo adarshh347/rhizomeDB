@@ -40,8 +40,8 @@ as the *not-forced* filter and the writer.
 ## Setup
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+python3.12 -m venv .venv          # needs Python ≥ 3.10 (PEP 604 unions at runtime);
+.venv/bin/pip install -r requirements.txt   # stock macOS python3 is 3.9 and won't import
 ```
 
 Embeddings run fully locally (no API key, no network after the model downloads
@@ -167,6 +167,46 @@ quote that can't be anchored lands in the **orphan queue** rather than being
 dropped (R11): pin it to a passage — candidates are suggested by word overlap —
 or dismiss it.
 
+## Retrieval engines
+
+The reader's **Connections** rail is not one retrieval geometry but eleven, behind
+one contract (`rhizome/engines/`, see `docs/ENGINES.md`). Every engine answers
+the same question — *from this passage, what else in the corpus?* — and returns
+the same shape, so you can flip between them on a passage and feel the difference
+between ordinary RAG and constellatory retrieval:
+
+| key | what it does |
+|---|---|
+| `band` | today's resonance band (skip the obvious, keep the related-but-distant, MMR) — the reference |
+| `spread` | the same band, chosen by set-level diversity (DPP / facility-location) instead of pairwise MMR |
+| `plain` | nearest neighbours, no exclusions — ordinary RAG, the baseline |
+| `lexical` / `hybrid` | BM25 keywords, and dense+BM25 reciprocal-rank fusion — the SOLID / lookup end |
+| `echo` | echoes *within* the same book, far from where you are |
+| `concept` | personalised PageRank over the concept graph — the graph as a retrieval path |
+| `walk` | a line of flight: the strongest step into a new book, then from there, hop by hop |
+| `marks` | your own highlights and notes as the index — what you once wrote, recalled |
+| `structural` | a second, persisted "structural" vector per passage (HyDE at build time; needs an LLM key to build) |
+| `fused` | union of the constellatory paths, re-ranked by relevance × surprise × provenance, then set-spread |
+
+Every pick discloses its `why`, its surface similarity and its **rank in the full
+corpus sort** ("#160 of 4110" — proof it was a mid-band resonance, not a top hit).
+A calibrated **noise floor** makes every constellatory engine return *nothing*
+when the corpus holds nothing that resonates with the seed (plain RAG deliberately
+never does — that is the contrast). `?engine=<key>` on a reader URL, the picker in
+the rail, and **Compare** (every engine's top three for the same seed) expose them;
+*Connect* on a text selection seeds them from a sentence instead of a passage.
+
+```bash
+.venv/bin/python -m rhizome.cli engines                                  # what is ready
+.venv/bin/python -m rhizome.cli connect --engine walk --chunk being-and-truth#0036
+.venv/bin/python -m rhizome.cli compare-engines --chunk being-and-truth#0036
+.venv/bin/python -m rhizome.cli eval-engines                             # the constellatory harness
+```
+
+The harness (`rhizome/eval_engines.py`, served at `/api/v2/engines/eval`) scores
+each engine on the PRD §6c proxies — mean corpus rank of its picks, intra-list
+diversity, book spread, and the share of incoherent seeds it still answers.
+
 ## Tuning the connections
 
 All the geometry knobs live in `rhizome/config.py`:
@@ -197,7 +237,7 @@ data/                  corpus + metadata + human inputs
 index/                 generated: chunks.jsonl + embeddings.npy (gitignored)
 build/                 generated: self-contained HTML maps (gitignored)
 scripts/               convert_books.py · upload_to_r2.py (one-off pipeline)
-docs/                  CHUNKING · FORMATS · OPERATING · ROADMAP · SCHEMA · VISION · PRD-chunking
+docs/                  CHUNKING · ENGINES · FORMATS · OPERATING · ROADMAP · SCHEMA · VISION · PRDs · audits/
 frontend/              Vite + React + TS SPA (the reader + panel UI)
 tools/                 chunkmap · conceptmap · docgraph · panel generators
 rhizome/               the engine + the backend
@@ -207,6 +247,8 @@ rhizome/               the engine + the backend
   embed.py             local ONNX embeddings (multi-model)
   concepts.py          core-concept extraction (content lens)
   store.py             in-memory index + rhizomatic retrieval geometry
+  engines/             the retrieval mini-engines behind one contract (docs/ENGINES.md)
+  eval_engines.py      the constellatory eval harness
   llm.py               Claude judging (structured) + synthesis
   engine.py            seed → candidates → judge → synthesize → wander
   anchor.py            durable quote → spine resolver (W3C selectors, orphan-safe)
