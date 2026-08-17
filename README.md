@@ -105,6 +105,13 @@ legacy quote annotations, then run the two dev servers:
 cd frontend && npm install && npm run dev      # UI on http://127.0.0.1:5174
 ```
 
+Tests are stdlib only on both sides — no pytest, no frontend test runner:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+cd frontend && npm run typecheck && npm test    # node --test, types stripped by Node
+```
+
 `npm run build` emits `frontend/dist/`, which the API then serves directly at
 `/` (no second server in production). The retrieval backend stays on full
 display, and quote resolution returns an *orphan* instead of guessing when a

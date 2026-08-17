@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "node --test src/__tests__/*.test.ts",
     "postinstall": "node scripts/copy-pdfjs-assets.mjs"
   },
   "dependencies": {

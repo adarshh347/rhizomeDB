@@ -18,9 +18,16 @@ export { sse } from "./sse";
 export type { SseControl, SseHandlers } from "./sse";
 
 // A retrieval seed: a chunk id, or free text (a selected sentence, a theme).
+// `kind` says where the text came from, so the server can tell a sentence
+// lifted out of the book (`selection`) from a typed question (`question`) and
+// not route the first into the long-answer synthesis prompt meant for the
+// second; it rides along as ?seed_kind= (omitted for a plain chunk seed).
+export type SeedKind = "question" | "selection" | "passage";
+
 export interface ConnSeed {
   mode: "chunk" | "theme";
   value: string;
+  kind?: SeedKind;
 }
 
 export interface UploadResult {
